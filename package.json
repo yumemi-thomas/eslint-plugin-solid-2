@@ -1,0 +1,59 @@
+{
+  "name": "eslint-plugin-solid-2",
+  "version": "0.0.0",
+  "description": "Solid 2-specific linting rules for ESLint.",
+  "homepage": "https://github.com/author/library#readme",
+  "bugs": {
+    "url": "https://github.com/author/library/issues"
+  },
+  "license": "MIT",
+  "author": "Author Name <author.name@mail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/author/library.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "prepublishOnly": "vp run build"
+  },
+  "dependencies": {
+    "@typescript-eslint/utils": "^8.0.0",
+    "is-html": "^2.0.0",
+    "kebab-case": "^1.0.2",
+    "known-css-properties": "^0.30.0",
+    "style-to-object": "^1.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@typescript/native-preview": "7.0.0-dev.20260328.1",
+    "bumpp": "^11.0.1",
+    "eslint": "^9.0.0",
+    "typescript": "^6.0.2",
+    "vite-plus": "^0.1.14"
+  },
+  "peerDependencies": {
+    "eslint": "^9.0.0"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

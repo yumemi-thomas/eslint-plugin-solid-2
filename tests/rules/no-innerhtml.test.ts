@@ -1,0 +1,107 @@
+import { AST_NODE_TYPES } from "@typescript-eslint/utils";
+import rule from "../../src/rules/no-innerhtml.js";
+import { typedRuleTester as ruleTester } from "../ruleTester.js";
+
+ruleTester.run("no-innerhtml", rule as never, {
+  valid: [
+    `let el = <div prop1 prop2={2}>Hello world!</div>`,
+    `let el = <Box prop1 prop2={2}>Hello world!</Box>`,
+    `let el = <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>" />`,
+    `let el = <div prop1 prop2={2} innerHTML={"<p>Hello</p>" + "<p>world!</p>"} />`,
+    `let el = <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>"></div>`,
+    `let el = (
+      <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>">
+        
+      </div>
+    )`,
+  ],
+  invalid: [
+    {
+      code: `let el = <div prop1 prop2={2} innerHTML="<p>Hello</><p>world!</p>" />`,
+      options: [{ allowStatic: false }],
+      errors: [{ messageId: "dangerous" }],
+    },
+    {
+      code: `let el = <div innerHTML={"<p>Hello</p><p>world!</p>"} />`,
+      options: [{ allowStatic: false }],
+      errors: [{ messageId: "dangerous" }],
+    },
+    {
+      code: `let el = <div prop1 prop2={2} innerHTML={"<p>Hello</p>" + "<p>world!</p>"} />`,
+      options: [{ allowStatic: false }],
+      errors: [{ messageId: "dangerous" }],
+    },
+    {
+      code: `let el = <div prop1 prop2={2} innerHTML={Math.random()} />`,
+      errors: [{ messageId: "dangerous" }],
+    },
+    {
+      code: `let el = <div prop1 prop2={2} innerHTML="Hello world!" />`,
+      errors: [
+        {
+          messageId: "notHtml",
+          suggestions: [
+            {
+              messageId: "useInnerText",
+              output: `let el = <div prop1 prop2={2} innerText="Hello world!" />`,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      code: `
+        let el = (
+          <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>">
+            <p>Child element content</p>
+          </div>
+        );
+      `,
+      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+    },
+    {
+      code: `
+        let el = (
+          <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>">
+            <p>Child element content 1</p>
+            <p>Child element context 2</p>
+          </div>
+        );
+      `,
+      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+    },
+    {
+      code: `
+        let el = (
+          <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>">
+            {"Child text content"}
+          </div>
+        );
+      `,
+      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+    },
+    {
+      code: `
+        let el = (
+          <div prop1 prop2={2} innerHTML="<p>Hello</p><p>world!</p>">
+            {identifier}
+          </div>
+        );
+      `,
+      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+    },
+    {
+      code: `let el = <div dangerouslySetInnerHTML={{ __html: "<p>Hello</p><p>world!</p>" }} />`,
+      errors: [{ messageId: "dangerouslySetInnerHTML" }],
+      output: `let el = <div innerHTML={"<p>Hello</p><p>world!</p>"} />`,
+    },
+    {
+      code: `let el = <div dangerouslySetInnerHTML={foo} />`,
+      errors: [{ messageId: "dangerouslySetInnerHTML" }],
+    },
+    {
+      code: `let el = <div dangerouslySetInnerHTML={{}} />`,
+      errors: [{ messageId: "dangerouslySetInnerHTML" }],
+    },
+  ],
+});
