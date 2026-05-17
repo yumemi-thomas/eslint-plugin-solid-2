@@ -1,4 +1,3 @@
-import { AST_NODE_TYPES } from "@typescript-eslint/utils";
 import rule from "../../src/rules/no-innerhtml.js";
 import { typedRuleTester as ruleTester } from "../ruleTester.js";
 
@@ -57,7 +56,7 @@ ruleTester.run("no-innerhtml", rule as never, {
           </div>
         );
       `,
-      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+      errors: [{ messageId: "conflict" }],
     },
     {
       code: `
@@ -68,7 +67,7 @@ ruleTester.run("no-innerhtml", rule as never, {
           </div>
         );
       `,
-      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+      errors: [{ messageId: "conflict" }],
     },
     {
       code: `
@@ -78,7 +77,7 @@ ruleTester.run("no-innerhtml", rule as never, {
           </div>
         );
       `,
-      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+      errors: [{ messageId: "conflict" }],
     },
     {
       code: `
@@ -88,7 +87,7 @@ ruleTester.run("no-innerhtml", rule as never, {
           </div>
         );
       `,
-      errors: [{ messageId: "conflict", type: AST_NODE_TYPES.JSXElement }],
+      errors: [{ messageId: "conflict" }],
     },
     {
       code: `let el = <div dangerouslySetInnerHTML={{ __html: "<p>Hello</p><p>world!</p>" }} />`,

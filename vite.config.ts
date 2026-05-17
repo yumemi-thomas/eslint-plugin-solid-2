@@ -9,6 +9,7 @@ export default defineConfig({
     format: ["esm", "cjs"],
   },
   lint: {
+    ignorePatterns: ["dist/**"],
     options: {
       typeAware: true,
       typeCheck: true,
@@ -17,5 +18,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
   },
-  fmt: {},
+  fmt: {
+    ignorePatterns: ["dist/**"],
+  },
 });
