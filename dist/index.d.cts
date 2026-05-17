@@ -42,6 +42,7 @@ declare const recommended: {
           allowedNamespaces?: string[];
         } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+        reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
           component?: "all" | "none";
@@ -94,6 +95,7 @@ declare const typescript: {
           allowedNamespaces?: string[];
         } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+        reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
         "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
           component?: "all" | "none";
@@ -145,6 +147,7 @@ declare const plugin: {
       allowedNamespaces?: string[];
     } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+    reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
       component?: "all" | "none";
@@ -192,6 +195,7 @@ declare const pluginWithConfigs: {
       allowedNamespaces?: string[];
     } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+    reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
     "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
       component?: "all" | "none";
@@ -256,6 +260,7 @@ declare const pluginWithConfigs: {
               allowedNamespaces?: string[];
             } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+            reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
               component?: "all" | "none";
@@ -306,6 +311,7 @@ declare const pluginWithConfigs: {
               allowedNamespaces?: string[];
             } | undefined)?], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "prefer-for": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferFor", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
+            reactivity: _$_typescript_eslint_utils_ts_eslint0.RuleModule<"noUntrackedReactiveRead", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "prefer-show": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"preferShowAnd" | "preferShowTernary", [], unknown, _$_typescript_eslint_utils_ts_eslint0.RuleListener>;
             "self-closing-comp": _$_typescript_eslint_utils_ts_eslint0.RuleModule<"dontSelfClose" | "selfClose", [({
               component?: "all" | "none";

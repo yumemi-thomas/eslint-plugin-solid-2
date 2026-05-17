@@ -43,6 +43,7 @@ export const rules = {
   "no-untracked-reactive-read": noUntrackedReactiveRead,
   "no-unknown-namespaces": noUnknownNamespaces,
   "prefer-for": preferFor,
+  reactivity: noUntrackedReactiveRead,
   "prefer-show": preferShow,
   "self-closing-comp": selfClosingComp,
   "style-prop": styleProp,

@@ -2095,6 +2095,7 @@ const plugin = {
 		"no-untracked-reactive-read": no_untracked_reactive_read_default,
 		"no-unknown-namespaces": no_unknown_namespaces_default,
 		"prefer-for": prefer_for_default,
+		reactivity: no_untracked_reactive_read_default,
 		"prefer-show": prefer_show_default,
 		"self-closing-comp": self_closing_comp_default,
 		"style-prop": createRule({
