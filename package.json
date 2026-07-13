@@ -42,7 +42,7 @@
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
-    "prepublishOnly": "vp run build"
+    "prepublishOnly": "vp check && vp test && vp run build"
   },
   "dependencies": {
     "@typescript-eslint/utils": "^8.59.1"
