@@ -23,6 +23,10 @@ ruleTester.run("self-closing-comp", rule as never, {
       options: [{ html: "none" }],
     },
     {
+      code: `let el = <svg:circle></svg:circle>;`,
+      options: [{ html: "none" }],
+    },
+    {
       code: `let el = <img></img>;`,
       options: [{ html: "none" }],
     },
@@ -96,6 +100,11 @@ ruleTester.run("self-closing-comp", rule as never, {
       output: `let el = (
         <Component />
       );`,
+    },
+    {
+      code: `let el = <svg:circle></svg:circle>;`,
+      errors: [{ messageId: "selfClose" }],
+      output: `let el = <svg:circle />;`,
     },
     {
       code: `let el = <Component />;`,

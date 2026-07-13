@@ -2,7 +2,7 @@
 
 Prefer Solid's `<For />` component over `Array#map(...)` when rendering JSX lists.
 
-`<For />` matches Solid's list rendering model better than embedding `map(...)` inside JSX. In Solid 2, callback parameters inside `<For />` are accessors, so the autofix rewrites simple safe cases to accessor reads like `item()`.
+`<For />` matches Solid's list rendering model better than embedding `map(...)` inside JSX. In Solid 2's default `<For />`, the item callback parameter is a raw value (unlike `index`, which is an `Accessor<number>`), so the autofix leaves item reads untouched and only calls the index parameter.
 
 ## Bad
 
@@ -30,14 +30,28 @@ Prefer Solid's `<For />` component over `Array#map(...)` when rendering JSX list
 
 ```tsx
 <ul>
-  <For each={items}>{(item) => <li>{item().name}</li>}</For>
+  <For each={items}>{(item) => <li>{item.name}</li>}</For>
 </ul>
 ```
 
 ```tsx
-<For each={groups}>
-  {(group) => <For each={group().items}>{(item) => <Row item={item()} />}</For>}
-</For>
+<ol>
+  {props.data.map((item, i) => (
+    <li>
+      {i}: {item.name}
+    </li>
+  ))}
+</ol>
+// autofixable to (index is an accessor, so it is called):
+<ol>
+  <For each={props.data}>
+    {(item, i) => (
+      <li>
+        {i()}: {item.name}
+      </li>
+    )}
+  </For>
+</ol>
 ```
 
 ```tsx
@@ -46,6 +60,22 @@ Prefer Solid's `<For />` component over `Array#map(...)` when rendering JSX list
 
 ## Notes
 
-- Autofix only applies to simple cases where the callback shape is safe to rewrite.
-- The rule only reports `map(...)` calls that produce JSX inside JSX.
+- The rule requires TypeScript to prove the receiver is an array. Syntax alone cannot distinguish
+  Array#map from an observable or another collection's `.map` method without false positives.
+- Autofix only applies to arrow callbacks with at most the item and index parameters. Array's third
+  callback argument, normal functions (`arguments`/`this`), destructuring, and rest parameters are
+  reported without a fixer.
+- The rule reports `map(...)` calls that produce JSX inside JSX, including when wrapped in a `{cond && …}` or `{cond ? … : …}` slot (those wrapped forms are reported but not autofixed).
 - Destructured parameters, rest parameters, and other complex callback shapes are reported without a fixer.
+
+## Options
+
+### `typescriptEnabled` (default `false`)
+
+Set `typescriptEnabled: true` to enable the rule. It reports only when the receiver is provably an
+array and skips `Map`, `Set`, observables, `any`, and `unknown`. This is enabled by
+`recommendedTypeChecked`; the AST-only `recommended` config leaves the rule off.
+
+```json
+{ "rules": { "solid/prefer-for": ["warn", { "typescriptEnabled": true }] } }
+```

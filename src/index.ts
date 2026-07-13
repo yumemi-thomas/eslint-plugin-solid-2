@@ -1,30 +1,18 @@
 import recommended from "./configs/recommended.js";
-import typescript from "./configs/typescript.js";
+import recommendedTypeChecked from "./configs/recommended-type-checked.js";
 import { plugin } from "./plugin.js";
 
+// A single TypeScript-only flat config. Every rule works from the AST/scope, so `recommended` runs
+// under both ESLint and oxlint. `recommendedTypeChecked` additionally turns on the opt-in
+// type-aware paths (slower; needs ESLint type information). `flat/*` aliases aid discoverability.
 const pluginWithConfigs = {
   ...plugin,
   configs: {
-    recommended: {
-      plugins: ["solid"],
-      parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
-        },
-      },
-      rules: recommended.rules,
-    },
-    typescript: {
-      plugins: ["solid"],
-      parserOptions: {
-        sourceType: "module",
-      },
-      rules: typescript.rules,
-    },
+    recommended,
     "flat/recommended": recommended,
-    "flat/typescript": typescript,
+    "recommended-type-checked": recommendedTypeChecked,
+    "flat/recommended-type-checked": recommendedTypeChecked,
   },
 };
 
 export default pluginWithConfigs;
-export { plugin, recommended, typescript };

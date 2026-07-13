@@ -1,102 +1,87 @@
 # eslint-plugin-solid-2
 
-ESLint rules for [Solid 2](https://solidjs.com) — catches reactivity bugs, removed APIs, and React-isms that don't translate to Solid.
+Sound ESLint rules for [Solid 2](https://github.com/solidjs/solid/tree/next) reactivity and idiomatic control flow.
 
-## Quick start
+Solid 2 changes how effects, ownership, async computations, and control-flow callbacks behave. This plugin catches the mistakes that TypeScript cannot express, while deliberately avoiding diagnostics that `tsc` already provides.
 
-Flat config:
+> Solid 2 is currently beta. This package tracks `solid-js@2.0.0-beta.17`.
+
+## Install
+
+```sh
+pnpm add -D eslint-plugin-solid-2 eslint typescript @typescript-eslint/parser
+```
+
+## Configure
+
+Use the base config when your linter runs without TypeScript program information:
 
 ```js
 // eslint.config.js
 import solid from "eslint-plugin-solid-2";
 
-export default [solid.configs["flat/recommended"]];
+export default [solid.configs.recommended];
 ```
 
-TypeScript projects: use `solid.configs["flat/typescript"]` instead.
-
-Legacy `.eslintrc` config:
-
-```json
-{
-  "extends": ["plugin:solid-2/recommended"]
-}
-```
-
-Override individual rules with the standard ESLint syntax:
+For a TypeScript project, prefer the type-checked config. It adds cross-file component detection and enables `prefer-for` only when the receiver is proven to be an array:
 
 ```js
-{
-  rules: {
-    "solid/no-destructure": "error",
-    "solid/prefer-for": "off",
-  },
-}
-```
+// eslint.config.js
+import solid from "eslint-plugin-solid-2";
+import tsParser from "@typescript-eslint/parser";
 
-## With Oxlint (JS plugins)
-
-Oxlint can load this plugin through its [JS plugins](https://oxc.rs/docs/guide/usage/linter/js-plugins) interface. Use the alias form so rules are prefixed `solid/` (the package name `eslint-plugin-solid-2` would otherwise resolve to `solid-2/`).
-
-In `.oxlintrc.json`:
-
-```json
-{
-  "jsPlugins": [{ "name": "solid", "specifier": "eslint-plugin-solid-2" }],
-  "rules": {
-    "solid/no-untracked-reactive-read": "error",
-    "solid/no-owned-scope-writes": "error",
-    "solid/no-react-deps": "error"
-  }
-}
-```
-
-In a Vite+ project, put it under `lint` in `vite.config.ts`:
-
-```ts
-import { defineConfig } from "vite-plus";
-
-export default defineConfig({
-  lint: {
-    jsPlugins: [{ name: "solid", specifier: "eslint-plugin-solid-2" }],
-    rules: {
-      "solid/no-untracked-reactive-read": "error",
+export default [
+  {
+    ...solid.configs["recommended-type-checked"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        projectService: true,
+      },
     },
   },
-});
+];
 ```
 
-## What it catches
+The `flat/recommended` and `flat/recommended-type-checked` names are aliases for tools that expect that convention.
 
-Rules covering Solid 2's runtime warnings:
+## Rules
 
-- `no-owned-scope-writes` — `SIGNAL_WRITE_IN_OWNED_SCOPE`
-- `no-untracked-reactive-read` — `STRICT_READ_UNTRACKED`
-- `no-async-outside-loading-boundary` — `ASYNC_OUTSIDE_LOADING_BOUNDARY`
-- `no-invalid-cleanup-return`, `no-cleanup-in-forbidden-scope`, `no-flush-in-forbidden-scope`, `no-primitives-in-forbidden-scope` — effect-shape mistakes
-- `no-signal-in-effect-apply`, `no-store-proxy-in-effect-apply` — apply-callback pitfalls
-- `no-react-deps`, `no-destructure` — React patterns that don't track in Solid
-- `no-unknown-namespaces` — JSX namespaces removed in Solid 2
+| Rule                                | What it protects                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `components-return-once`            | Reactive conditional and early returns that freeze component structure.                                  |
+| `jsx-no-duplicate-props`            | Competing host-element content sources such as `children`, JSX children, `innerHTML`, and `textContent`. |
+| `no-destructure`                    | Destructuring component props, which performs untracked reads.                                           |
+| `no-leaf-owner-operations`          | Invalid cleanup, flush, and child-owner work inside leaf owners.                                         |
+| `no-owned-scope-writes`             | State writes and action calls from component or compute scopes.                                          |
+| `no-reactive-read-after-await`      | Accessor reads after an `await` in a reactive computation.                                               |
+| `no-stale-props-alias`              | Top-level aliases of reactive prop reads.                                                                |
+| `no-untracked-read-in-effect-apply` | Signal and store reads in an effect apply callback.                                                      |
+| `prefer-for`                        | Uses `<For>` for reactive array rendering when type information proves `Array#map`.                      |
+| `prefer-show`                       | Uses `<Show>` for idiomatic reactive JSX conditionals.                                                   |
+| `self-closing-comp`                 | Keeps empty JSX elements consistently self-closing.                                                      |
 
-Plus general JSX hygiene: `jsx-no-duplicate-props`, `jsx-no-script-url`, `jsx-no-undef`, `jsx-uses-vars`, `no-innerhtml`, `no-array-handlers`, `components-return-once`, `prefer-for`, `prefer-show`, `self-closing-comp`, `style-prop`.
+Every rule has focused documentation in [docs](./docs).
 
-Per-rule docs are in [`docs/`](./docs).
+## Design principles
 
-## Installation
+- TypeScript owns type errors. The plugin does not duplicate diagnostics for invalid JSX names, duplicate attributes, accessor/value mismatches, or other type-checkable mistakes.
+- Correct code should stay quiet. When a rule cannot prove a problem, it prefers a false negative to a false positive.
+- Autofixes must preserve behavior. Ambiguous cases are reported without a fix or left for an explicit editor suggestion.
 
-Not yet published. Clone and build, then add as a local dependency:
+The reasoning behind these choices is recorded in the [architecture decision records](./docs/adr).
 
-```bash
-git clone <repo> eslint-plugin-solid-2
-cd eslint-plugin-solid-2
+## Development
+
+This repository uses [Vite+](https://viteplus.dev/).
+
+```sh
 vp install
-vp pack
+vp check
+vp test
+vp run build
 ```
 
-In your project:
+## License
 
-```bash
-pnpm add -D file:../path/to/eslint-plugin-solid-2
-```
-
-pnpm symlinks the package, so rebuilds are picked up automatically.
+[MIT](./LICENSE)

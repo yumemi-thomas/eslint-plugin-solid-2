@@ -1,7 +1,7 @@
-import { ASTUtils, ESLintUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
-import type { FunctionNode } from "../utils.js";
-
-const createRule = ESLintUtils.RuleCreator.withoutDocs;
+import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { isFunctionNode, type FunctionNode } from "../utils.js";
+import { createRule } from "./create-rule.js";
+import { getSolidImportFixes, isComponent, isNameTaken } from "./solid-rule-utils.js";
 
 const getName = (node: T.Node): string | null => {
   switch (node.type) {
@@ -23,8 +23,16 @@ interface PropertyInfo {
   variableName: string;
 }
 
-function isNameTaken(sourceCode: TSESLint.SourceCode, name: string): boolean {
-  return sourceCode.scopeManager?.scopes.some((scope) => scope.set.has(name)) ?? false;
+function getAvailableName(sourceCode: TSESLint.SourceCode, preferred: string): string {
+  if (!isNameTaken(sourceCode, preferred)) {
+    return preferred;
+  }
+
+  let index = 2;
+  while (isNameTaken(sourceCode, `${preferred}${index}`)) {
+    index += 1;
+  }
+  return `${preferred}${index}`;
 }
 
 const getPropertyInfo = (property: T.Property): PropertyInfo | null => {
@@ -41,7 +49,11 @@ const getPropertyInfo = (property: T.Property): PropertyInfo | null => {
   };
 };
 
-export default createRule({
+type Options = [{ typescriptEnabled?: boolean }?];
+type MessageIds = "noDestructure";
+
+export default createRule<Options, MessageIds>({
+  name: "no-destructure",
   meta: {
     type: "problem",
     docs: {
@@ -49,28 +61,34 @@ export default createRule({
         "Disallow destructuring component props. In Solid 2, destructuring props triggers top-level untracked reads.",
     },
     fixable: "code",
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          // Opt in to type-aware analysis: also detect components used as `<C/>` in other files.
+          // Requires ESLint type information and is slower; off by default.
+          typescriptEnabled: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       noDestructure:
         "Destructuring component props breaks Solid 2 reactivity; keep the `props` object and read properties from it.",
     },
   },
-  defaultOptions: [],
+  defaultOptions: [{}],
   create(context) {
-    const functionStack: Array<{ hasJSX: boolean }> = [];
-    const currentFunction = () => functionStack[functionStack.length - 1];
-
-    const onFunctionEnter = () => {
-      functionStack.push({ hasJSX: false });
-    };
+    const sourceCode = context.sourceCode;
 
     const onFunctionExit = (node: FunctionNode) => {
+      // The component index is complete (built from the whole file), so detect and report inline.
       const props = node.params[0];
       if (
         node.params.length === 1 &&
         props?.type === "ObjectPattern" &&
-        currentFunction()?.hasJSX &&
-        node.parent?.type !== "JSXExpressionContainer"
+        node.parent?.type !== "JSXExpressionContainer" &&
+        isComponent(node, context)
       ) {
         context.report({
           node: props,
@@ -78,8 +96,6 @@ export default createRule({
           fix: (fixer) => fixDestructure(node, props, fixer),
         });
       }
-
-      functionStack.pop();
     };
 
     function* fixDestructure(
@@ -111,9 +127,22 @@ export default createRule({
         }
       }
 
+      // Nested binding patterns cannot be rewritten as simple `props.x` references. Replacing the
+      // parameter while leaving their bindings behind would emit undefined identifiers, so keep
+      // the diagnostic but make it report-only for every shape the fixer cannot fully represent.
+      const ordinaryPropertyCount = properties.filter(
+        (property): property is T.Property => property.type === "Property",
+      ).length;
+      if (
+        propEntries.length !== ordinaryPropertyCount ||
+        (rest != null && rest.argument.type !== "Identifier")
+      ) {
+        return;
+      }
+
       const hasDefaults = propEntries.some((entry) => entry.init);
-      const propsName = "props";
-      const originalPropsName = hasDefaults ? "_props" : propsName;
+      const propsName = getAvailableName(sourceCode, "props");
+      const originalPropsName = hasDefaults ? getAvailableName(sourceCode, "_props") : propsName;
 
       const helperNames = new Map<string, string>();
       if (importNode) {
@@ -179,6 +208,24 @@ export default createRule({
         return;
       }
 
+      // The rewrite may reference `merge`/`omit`; add the solid-js import when it isn't already
+      // there so the fixed code compiles (resolveHelper has already ruled out name conflicts).
+      // Emitted only after every bail-out above, so an import is never added without the rewrite.
+      const missingHelpers: string[] = [];
+      if (hasDefaults && !helperNames.has("merge")) {
+        missingHelpers.push("merge");
+      }
+      if (rest && !helperNames.has("omit")) {
+        missingHelpers.push("omit");
+      }
+      if (missingHelpers.length > 0) {
+        const importFixes = getSolidImportFixes(context, fixer, missingHelpers);
+        if (importFixes == null) {
+          return;
+        }
+        yield* importFixes;
+      }
+
       if (props.typeAnnotation) {
         yield fixer.replaceTextRange(
           [props.range[0], props.typeAnnotation.range[0]],
@@ -230,20 +277,30 @@ export default createRule({
     }
 
     return {
-      FunctionDeclaration: onFunctionEnter,
-      FunctionExpression: onFunctionEnter,
-      ArrowFunctionExpression: onFunctionEnter,
       "FunctionDeclaration:exit": onFunctionExit,
       "FunctionExpression:exit": onFunctionExit,
       "ArrowFunctionExpression:exit": onFunctionExit,
-      JSXElement() {
-        if (functionStack.length > 0) {
-          currentFunction().hasJSX = true;
+      VariableDeclarator(node) {
+        // Body-level destructure (`const { a } = props`). Flag only when the destructured value is
+        // the first parameter (the props object) of a confirmed component — never an arbitrary
+        // local object. The enclosing function is already in scope, so this resolves inline.
+        // Report-only (no autofix).
+        if (node.id.type !== "ObjectPattern" || node.init?.type !== "Identifier") {
+          return;
         }
-      },
-      JSXFragment() {
-        if (functionStack.length > 0) {
-          currentFunction().hasJSX = true;
+
+        const variable = ASTUtils.findVariable(sourceCode.getScope(node.init), node.init);
+        const def = variable?.defs[0];
+        if (def?.type !== "Parameter" || !isFunctionNode(def.node)) {
+          return;
+        }
+        // The props param may carry a default (`(props = {}) => …`), so unwrap an AssignmentPattern
+        // before checking it is the first parameter.
+        const firstParam = def.node.params[0];
+        const firstParamId =
+          firstParam?.type === "AssignmentPattern" ? firstParam.left : firstParam;
+        if (firstParamId === def.name && isComponent(def.node, context)) {
+          context.report({ node: node.id, messageId: "noDestructure" });
         }
       },
     };

@@ -1,16 +1,24 @@
 {
   "name": "eslint-plugin-solid-2",
-  "version": "0.0.0",
-  "description": "Solid 2-specific linting rules for ESLint.",
-  "homepage": "https://github.com/author/library#readme",
+  "version": "0.1.0",
+  "description": "Sound ESLint rules for Solid 2 reactivity and idiomatic control flow.",
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "solid",
+    "solid-2",
+    "solid-js",
+    "solidjs"
+  ],
+  "homepage": "https://github.com/yumemi-thomas/eslint-plugin-solid-2#readme",
   "bugs": {
-    "url": "https://github.com/author/library/issues"
+    "url": "https://github.com/yumemi-thomas/eslint-plugin-solid-2/issues"
   },
   "license": "MIT",
-  "author": "Author Name <author.name@mail.com>",
+  "author": "Thomas Guehenneux",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/author/library.git"
+    "url": "git+https://github.com/yumemi-thomas/eslint-plugin-solid-2.git"
   },
   "files": [
     "dist"
@@ -37,11 +45,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
-    "@typescript-eslint/utils": "^8.59.1",
-    "is-html": "^3.2.0",
-    "kebab-case": "^2.0.0",
-    "known-css-properties": "^0.37.0",
-    "style-to-object": "^1.0.14"
+    "@typescript-eslint/utils": "^8.59.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -49,11 +53,16 @@
     "@typescript/native-preview": "7.0.0-dev.20260502.1",
     "bumpp": "^11.0.1",
     "eslint": "^10.3.0",
+    "solid-js": "2.0.0-beta.17",
     "typescript": "^6.0.3",
     "vite-plus": "^0.1.20"
   },
   "peerDependencies": {
-    "eslint": "^9.0.0 || ^10.0.0"
+    "eslint": "^9.0.0 || ^10.0.0",
+    "typescript": ">=5.0.0"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "packageManager": "pnpm@10.33.2"
 }

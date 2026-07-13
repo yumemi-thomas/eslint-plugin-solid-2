@@ -1,7 +1,7 @@
-import { ASTUtils, ESLintUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
 import type { FunctionNode } from "../utils.js";
-
-const createRule = ESLintUtils.RuleCreator.withoutDocs;
+import { createRule } from "./create-rule.js";
+import { bindsToSolid, isComponent, resolveSolidCallee } from "./solid-rule-utils.js";
 
 const SETTER_FACTORIES = new Set([
   "createOptimistic",
@@ -9,28 +9,11 @@ const SETTER_FACTORIES = new Set([
   "createSignal",
   "createStore",
 ]);
+// Factories that accept a `{ ownedWrite: true }` option, opting the setter out of the rule.
+const OWNED_WRITE_FACTORIES = new Set(["createSignal", "createOptimistic"]);
 const EFFECT_FACTORIES = new Set(["createEffect", "createRenderEffect"]);
 const COMPUTE_FACTORIES = new Set(["createEffect", "createMemo", "createRenderEffect"]);
-
-function expressionCanYieldJSX(node: T.Expression | null | undefined): boolean {
-  if (node == null) {
-    return false;
-  }
-
-  switch (node.type) {
-    case "JSXElement":
-    case "JSXFragment":
-      return true;
-    case "ConditionalExpression":
-      return expressionCanYieldJSX(node.consequent) || expressionCanYieldJSX(node.alternate);
-    case "LogicalExpression":
-      return expressionCanYieldJSX(node.left) || expressionCanYieldJSX(node.right);
-    case "SequenceExpression":
-      return expressionCanYieldJSX(node.expressions.at(-1));
-    default:
-      return false;
-  }
-}
+const ACTION_FACTORIES = new Set(["action"]);
 
 function getPropertyName(node: T.Property): string | null {
   if (!node.computed && node.key.type === "Identifier") {
@@ -59,91 +42,11 @@ function hasOwnedWriteOption(node: T.CallExpression): boolean {
   );
 }
 
-function blockReturnsJSX(block: T.BlockStatement): boolean {
-  const statements = [...block.body];
-  while (statements.length > 0) {
-    const statement = statements.pop()!;
-    switch (statement.type) {
-      case "BlockStatement":
-        statements.push(...statement.body);
-        break;
-      case "IfStatement":
-        if (statement.consequent) {
-          statements.push(statement.consequent);
-        }
-        if (statement.alternate) {
-          statements.push(statement.alternate);
-        }
-        break;
-      case "LabeledStatement":
-      case "WithStatement":
-        statements.push(statement.body);
-        break;
-      case "SwitchStatement":
-        for (const switchCase of statement.cases) {
-          statements.push(...switchCase.consequent);
-        }
-        break;
-      case "TryStatement":
-        statements.push(statement.block);
-        if (statement.handler) {
-          statements.push(statement.handler.body);
-        }
-        if (statement.finalizer) {
-          statements.push(statement.finalizer);
-        }
-        break;
-      case "ReturnStatement":
-        if (expressionCanYieldJSX(statement.argument)) {
-          return true;
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  return false;
-}
-
-function returnsJSX(node: FunctionNode): boolean {
-  if (node.body.type !== "BlockStatement") {
-    return expressionCanYieldJSX(node.body);
-  }
-
-  return blockReturnsJSX(node.body);
-}
-
-function getComponentName(node: FunctionNode): string | null {
-  if (
-    (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") &&
-    node.id != null
-  ) {
-    return node.id.name;
-  }
-
-  if (node.parent?.type === "VariableDeclarator" && node.parent.id.type === "Identifier") {
-    return node.parent.id.name;
-  }
-
-  return null;
-}
-
-function isComponentLike(node: FunctionNode): boolean {
-  if (node.parent?.type === "JSXExpressionContainer") {
-    return false;
-  }
-
-  const name = getComponentName(node);
-  return returnsJSX(node) && (name == null || !/^[a-z]/.test(name));
-}
-
 function isOwnedScopeFunction(
   node: FunctionNode,
-  computeAliases: ReadonlySet<string>,
-  effectAliases: ReadonlySet<string>,
+  context: Readonly<TSESLint.RuleContext<string, readonly unknown[]>>,
 ): boolean {
-  if (isComponentLike(node)) {
+  if (isComponent(node, context)) {
     return true;
   }
 
@@ -155,50 +58,65 @@ function isOwnedScopeFunction(
     return false;
   }
 
-  const callee = node.parent.callee.name;
-  if (!computeAliases.has(callee) && !COMPUTE_FACTORIES.has(callee)) {
+  // Resolve the enclosing factory by binding, not bare name (ADR-0003): a local `createMemo` or a
+  // same-named import from another package is not Solid's compute scope.
+  const callee = node.parent.callee;
+  if (!bindsToSolid(callee, context, COMPUTE_FACTORIES)) {
     return false;
   }
 
   // The 1.x single-arg createEffect/createRenderEffect is already marked deprecated.
   // Only flag the 2.0 split form (≥2 args) where the first arg is explicitly the compute phase.
-  if (EFFECT_FACTORIES.has(callee) || effectAliases.has(callee)) {
+  if (bindsToSolid(callee, context, EFFECT_FACTORIES)) {
     return node.parent.arguments.length >= 2;
   }
 
   return true;
 }
 
-export default createRule({
+type Options = [{ typescriptEnabled?: boolean }?];
+type MessageIds = "noActionInOwnedScope" | "noOwnedScopeWrite";
+
+export default createRule<Options, MessageIds>({
+  name: "no-owned-scope-writes",
   meta: {
     type: "problem",
     docs: {
       description:
         "Disallow signal/store writes inside component bodies and reactive compute scopes in Solid 2.",
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          // Opt in to type-aware analysis: also detect components used as `<C/>` in other files.
+          // Requires ESLint type information and is slower; off by default.
+          typescriptEnabled: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
+      noActionInOwnedScope:
+        "Calling an action inside a component or reactive compute scope is not allowed in Solid 2. Call it from an event handler or another imperative scope.",
       noOwnedScopeWrite:
         "Writing to state inside a component or reactive compute scope is not allowed in Solid 2. Derive values instead, move the write to an event handler or apply phase, or use `ownedWrite: true` for internal `createSignal` state.",
     },
   },
-  defaultOptions: [],
+  defaultOptions: [{}],
   create(context) {
     const setterVariables = new Map<TSESLint.Scope.Variable, { allowOwnedWrite: boolean }>();
-    const setterFactories = new Set<string>();
-    const createSignalAliases = new Set<string>();
-    const computeAliases = new Set<string>();
-    const effectAliases = new Set<string>();
-    const functionStack: Array<{ node: FunctionNode; forbidden: boolean }> = [];
+    const actionVariables = new Set<TSESLint.Scope.Variable>();
+    const functionStack: FunctionNode[] = [];
+    // A setter can be *called* (inside a closure) before its declaration is traversed — e.g. the
+    // apply callback of `createEffect(() => count(), () => setCount(1))` above the `createSignal`.
+    // So we collect setter calls and resolve them against the completed setter map on exit.
+    const pendingCalls: Array<{ callee: T.Identifier; enclosingFn: FunctionNode }> = [];
+    const pendingDirectActions: Array<{ call: T.CallExpression; enclosingFn: FunctionNode }> = [];
     const sourceCode = context.sourceCode;
 
-    const currentFunction = () => functionStack[functionStack.length - 1];
-
     const onFunctionEnter = (node: FunctionNode) => {
-      functionStack.push({
-        node,
-        forbidden: isOwnedScopeFunction(node, computeAliases, effectAliases),
-      });
+      functionStack.push(node);
     };
 
     const onFunctionExit = () => {
@@ -206,42 +124,48 @@ export default createRule({
     };
 
     return {
-      ImportDeclaration(node) {
-        if (node.source.type !== "Literal" || node.source.value !== "solid-js") {
+      VariableDeclarator(node) {
+        if (
+          node.id.type === "Identifier" &&
+          node.init?.type === "CallExpression" &&
+          resolveSolidCallee(node.init.callee, context, ACTION_FACTORIES) != null
+        ) {
+          const actionId = node.id;
+          const variable = sourceCode.scopeManager
+            ?.getDeclaredVariables(node)
+            .find((declared) => declared.name === actionId.name);
+          if (variable) {
+            actionVariables.add(variable);
+          }
           return;
         }
 
-        for (const specifier of node.specifiers) {
-          if (specifier.type !== "ImportSpecifier") {
-            continue;
-          }
-
-          const importedName =
-            specifier.imported.type === "Identifier"
-              ? specifier.imported.name
-              : specifier.imported.value;
-          if (SETTER_FACTORIES.has(importedName)) {
-            setterFactories.add(specifier.local.name);
-          }
-          if (importedName === "createSignal") {
-            createSignalAliases.add(specifier.local.name);
-          }
-          if (COMPUTE_FACTORIES.has(importedName)) {
-            computeAliases.add(specifier.local.name);
-          }
-          if (EFFECT_FACTORIES.has(importedName)) {
-            effectAliases.add(specifier.local.name);
+        if (node.id.type === "Identifier" && node.init?.type === "Identifier") {
+          const source = ASTUtils.findVariable(sourceCode.getScope(node.init), node.init);
+          if (source && actionVariables.has(source)) {
+            const aliasId = node.id;
+            const variable = sourceCode.scopeManager
+              ?.getDeclaredVariables(node)
+              .find((declared) => declared.name === aliasId.name);
+            if (variable) {
+              actionVariables.add(variable);
+            }
           }
         }
-      },
-      VariableDeclarator(node) {
+
         if (
           node.id.type !== "ArrayPattern" ||
           node.init?.type !== "CallExpression" ||
-          node.init.callee.type !== "Identifier" ||
-          (!setterFactories.has(node.init.callee.name) &&
-            !SETTER_FACTORIES.has(node.init.callee.name))
+          node.init.callee.type !== "Identifier"
         ) {
+          return;
+        }
+
+        // Resolve the factory by binding, not bare name (ADR-0003): a local `createSignal` or a
+        // state library's `createStore` (e.g. from "redux") is not a Solid setter factory.
+        // resolveSolidCallee returns the *canonical* name, so an aliased import resolves correctly.
+        const canonical = resolveSolidCallee(node.init.callee, context, SETTER_FACTORIES);
+        if (canonical == null) {
           return;
         }
 
@@ -257,11 +181,9 @@ export default createRule({
           return;
         }
 
+        // `ownedWrite: true` opts a createSignal/createOptimistic setter out of the rule.
         setterVariables.set(variable, {
-          allowOwnedWrite:
-            (node.init.callee.name === "createSignal" ||
-              createSignalAliases.has(node.init.callee.name)) &&
-            hasOwnedWriteOption(node.init),
+          allowOwnedWrite: OWNED_WRITE_FACTORIES.has(canonical) && hasOwnedWriteOption(node.init),
         });
       },
       FunctionDeclaration: onFunctionEnter,
@@ -271,21 +193,62 @@ export default createRule({
       "FunctionExpression:exit": onFunctionExit,
       "ArrowFunctionExpression:exit": onFunctionExit,
       CallExpression(node) {
-        const current = currentFunction();
-        if (!current?.forbidden || node.callee.type !== "Identifier") {
+        const enclosingFn = functionStack[functionStack.length - 1];
+        if (!enclosingFn) {
           return;
         }
 
-        const variable = ASTUtils.findVariable(sourceCode.getScope(node), node.callee);
-        const setter = variable && setterVariables.get(variable);
-        if (!setter || setter.allowOwnedWrite) {
+        if (
+          node.callee.type === "CallExpression" &&
+          resolveSolidCallee(node.callee.callee, context, ACTION_FACTORIES) != null
+        ) {
+          pendingDirectActions.push({ call: node, enclosingFn });
           return;
         }
 
-        context.report({
-          node: node.callee,
-          messageId: "noOwnedScopeWrite",
-        });
+        if (node.callee.type !== "Identifier") {
+          return;
+        }
+
+        pendingCalls.push({ callee: node.callee, enclosingFn });
+      },
+      "Program:exit"() {
+        // The same enclosing function recurs across many setter calls; resolve its owned-scope
+        // verdict once.
+        const ownedScopeCache = new Map<FunctionNode, boolean>();
+        const isOwnedScope = (fn: FunctionNode): boolean => {
+          let verdict = ownedScopeCache.get(fn);
+          if (verdict === undefined) {
+            verdict = isOwnedScopeFunction(fn, context);
+            ownedScopeCache.set(fn, verdict);
+          }
+          return verdict;
+        };
+
+        for (const { callee, enclosingFn } of pendingCalls) {
+          const variable = ASTUtils.findVariable(sourceCode.getScope(callee), callee);
+          if (variable && actionVariables.has(variable) && isOwnedScope(enclosingFn)) {
+            context.report({ node: callee, messageId: "noActionInOwnedScope" });
+            continue;
+          }
+          const setter = variable && setterVariables.get(variable);
+          if (!setter || setter.allowOwnedWrite) {
+            continue;
+          }
+
+          if (isOwnedScope(enclosingFn)) {
+            context.report({
+              node: callee,
+              messageId: "noOwnedScopeWrite",
+            });
+          }
+        }
+
+        for (const { call, enclosingFn } of pendingDirectActions) {
+          if (isOwnedScope(enclosingFn)) {
+            context.report({ node: call, messageId: "noActionInOwnedScope" });
+          }
+        }
       },
     };
   },

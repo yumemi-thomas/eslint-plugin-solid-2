@@ -4,6 +4,21 @@ const domElementRegex = /^[a-z]/;
 
 export const isDOMElementName = (name: string): boolean => domElementRegex.test(name);
 
+/**
+ * Whether a JSX opening element is a host (DOM) element rather than a custom component. DOM-only
+ * DOM-only rules must skip components, whose attributes are author-defined props with no DOM
+ * semantics. A lowercase tag (`<div>`) or a namespaced tag (`<svg:rect>`) is a
+ * host element; a capitalized tag (`<Card>`) or a member tag (`<Foo.Bar>`) is a component.
+ */
+export const isHostElement = (opening: T.JSXOpeningElement): boolean => {
+  const tag = opening.name;
+  if (tag.type === "JSXIdentifier") {
+    return isDOMElementName(tag.name);
+  }
+
+  return tag.type === "JSXNamespacedName";
+};
+
 export type FunctionNode = T.FunctionDeclaration | T.FunctionExpression | T.ArrowFunctionExpression;
 
 export const getFunctionName = (node: FunctionNode): string | null => {

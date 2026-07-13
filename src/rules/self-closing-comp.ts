@@ -1,7 +1,6 @@
-import { ESLintUtils, TSESTree as T } from "@typescript-eslint/utils";
-import { isDOMElementName } from "../utils.js";
-
-const createRule = ESLintUtils.RuleCreator.withoutDocs;
+import { TSESTree as T } from "@typescript-eslint/utils";
+import { isDOMElementName, isHostElement } from "../utils.js";
+import { createRule } from "./create-rule.js";
 
 type MessageIds = "dontSelfClose" | "selfClose";
 type Options = [{ component?: "all" | "none"; html?: "all" | "none" | "void" }?];
@@ -29,6 +28,7 @@ const childrenIsMultilineSpaces = (node: T.JSXOpeningElement): boolean => {
 };
 
 export default createRule<Options, MessageIds>({
+  name: "self-closing-comp",
   meta: {
     type: "layout",
     docs: {
@@ -59,12 +59,12 @@ export default createRule<Options, MessageIds>({
         return (context.options[0]?.component ?? "all") === "all";
       }
 
-      if (node.name.type === "JSXIdentifier" && isDOMElementName(node.name.name)) {
+      if (isHostElement(node)) {
         switch (context.options[0]?.html ?? "all") {
           case "all":
             return true;
           case "void":
-            return isVoidDOMElementName(node.name.name);
+            return node.name.type === "JSXIdentifier" && isVoidDOMElementName(node.name.name);
           case "none":
             return false;
         }
