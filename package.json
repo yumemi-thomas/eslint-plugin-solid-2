@@ -1,6 +1,6 @@
 {
   "name": "@thomaflette/eslint-plugin-solid-2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sound ESLint rules for Solid 2 reactivity and idiomatic control flow.",
   "keywords": [
     "eslint",
@@ -21,7 +21,8 @@
     "url": "git+https://github.com/yumemi-thomas/eslint-plugin-solid-2.git"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "type": "module",
   "main": "./dist/index.cjs",
@@ -39,21 +40,22 @@
   },
   "scripts": {
     "build": "vp pack",
+    "bench": "vp test bench",
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
     "prepublishOnly": "vp check && vp test && vp run build"
   },
   "dependencies": {
-    "@typescript-eslint/utils": "^8.59.1"
+    "@typescript-eslint/utils": "^8.63.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "@typescript-eslint/parser": "^8.59.1",
+    "@typescript-eslint/parser": "^8.63.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@typescript/native-preview": "7.0.0-dev.20260502.1",
     "bumpp": "^11.0.1",
-    "eslint": "^10.3.0",
+    "eslint": "10.7.0",
     "solid-js": "2.0.0-beta.17",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite-plus": "^0.1.20"

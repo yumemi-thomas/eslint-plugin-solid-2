@@ -14,6 +14,10 @@ createMemo(() => setCount(count() + 1));
 ```
 
 ```ts
+createMemo(() => refresh());
+```
+
+```ts
 createEffect(
   () => {
     setCount(count() + 1);
@@ -88,17 +92,25 @@ function Component() {
 ## Notes
 
 - Component bodies count as owned scopes.
-- The compute phase (first argument) of `createEffect`, `createMemo`, and `createRenderEffect` counts as an owned scope. The apply phase (second argument) of `createEffect`/`createRenderEffect` does not.
+- The compute phase of effects, memos, projections, and derived signal/store factories counts as
+  an owned scope. The apply phase (second argument) of `createEffect`/`createRenderEffect` does not.
 - The 1.x single-callback form `createEffect(() => { ... })` is already deprecated in Solid 2 and is not flagged by this rule — the deprecation marker on the type is the relevant signal there.
 - `ownedWrite: true` is respected for `createSignal`, including aliased imports.
 - Actions created with `action(...)`, their `const` aliases, and immediately-invoked action
   factories are detected.
+- `refresh()` is a write-like graph operation and is rejected in the same owned scopes.
+- Direct, aliased, and namespace `solid-js` imports are resolved by binding rather than by their
+  local spelling.
 
 ## Options
 
 ### `typescriptEnabled` (default `false`)
 
-Component bodies are recognised by annotation (`Component`/…) or in-file `<C/>` usage by default. Set `typescriptEnabled: true` to also detect components by their cross-file JSX usage via the TypeScript type-checker (slower; requires ESLint type information). The compute-scope detection (`createEffect`/`createMemo`/…) is unaffected — it never needed type information.
+Component bodies are recognised by annotation (`Component`/…) or in-file `<C/>` usage by default.
+Set `typescriptEnabled: true` to also detect components by their cross-file JSX usage and recognize
+Solid factories, setters, actions, and `refresh` through re-export chains. Direct, aliased, and
+namespace `solid-js` imports remain AST-only. The option is slower and requires ESLint type
+information.
 
 ```json
 { "rules": { "solid/no-owned-scope-writes": ["error", { "typescriptEnabled": true }] } }

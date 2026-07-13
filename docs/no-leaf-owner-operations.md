@@ -60,9 +60,23 @@ createEffect(
 ## Notes
 
 - Only **direct** calls inside the forbidden callback body are checked; nested helper function definitions are allowed.
-- Calls are matched by binding (a `solid-js` import, alias, or unresolved global) — a same-named function from another package is not flagged.
+- Calls are matched by binding (a direct, aliased, or namespace `solid-js` import, or an unresolved
+  global) — a same-named function from another package is not flagged. Type-aware mode also follows
+  re-export chains.
 - `createContext` is a context factory and is allowed. `createRoot` creates a child owner and is
   rejected by beta.17 beneath a leaf owner.
 - `onSettled` is a leaf owner only when called under an owner. Calls from event handlers or another
   leaf owner are scheduled unowned, so their callbacks are not classified as leaf-owner scopes.
 - This rule replaces the former `no-cleanup-in-forbidden-scope`, `no-flush-in-forbidden-scope`, and `no-primitives-in-forbidden-scope` rules (see [ADR-0006](./adr/0006-merge-leaf-owner-rules.md)).
+
+## Options
+
+### `typescriptEnabled` (default `false`)
+
+Set `typescriptEnabled: true` to additionally recognize Solid APIs that arrive through re-export
+chains. Direct, aliased, and namespace `solid-js` imports are handled without type information.
+This option requires ESLint type information and is enabled by `recommendedTypeChecked`.
+
+```json
+{ "rules": { "solid/no-leaf-owner-operations": ["error", { "typescriptEnabled": true }] } }
+```

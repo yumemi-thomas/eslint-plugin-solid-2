@@ -1,10 +1,12 @@
 import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { getControlFlowFunctionChildren } from "../analysis/control-flow-children.js";
+import { findReactiveRead, getReactiveReadTypeServices } from "../analysis/reactive-reads.js";
 import { isFunctionNode, type FunctionNode } from "../utils.js";
 import { createRule } from "./create-rule.js";
 import { bindsToSolid, isComponent } from "./solid-rule-utils.js";
 
 type Options = [{ typescriptEnabled?: boolean }?];
-type MessageIds = "stalePropsAlias";
+type MessageIds = "stalePropsAlias" | "stalePropsRead" | "staleReactiveRead";
 const UNTRACK_NAMES = new Set(["untrack"]);
 // `merge(defaults, props)` / `omit(props, ...keys)` are the canonical 2.0 defaults/rest patterns:
 // both return a *reactive* proxy over the props object, so passing `props` to them is a reactive
@@ -176,7 +178,7 @@ export default createRule<Options, MessageIds>({
     type: "problem",
     docs: {
       description:
-        "Disallow top-level aliases of component props, which read props outside tracking.",
+        "Disallow provable untracked reactive reads in component and Solid control-flow structure-building scopes.",
     },
     schema: [
       {
@@ -192,34 +194,50 @@ export default createRule<Options, MessageIds>({
     messages: {
       stalePropsAlias:
         "`{{name}}` aliases a prop read outside tracking. Read from `props` in JSX or a tracked scope instead.",
+      stalePropsRead:
+        "This prop is read directly in a Solid control-flow function child, where it will not update. Read it inside returned JSX or an explicit tracked scope instead.",
+      staleReactiveRead:
+        "Reactive state is read directly in a component or Solid control-flow function child, where it will not update. Read it inside JSX, a reactive computation, or explicit `untrack()` instead.",
     },
   },
   defaultOptions: [{}],
   create(context) {
     const sourceCode = context.sourceCode;
+    const typescript = getReactiveReadTypeServices(context);
 
     const checkFunction = (node: FunctionNode): void => {
-      if (node.body.type !== "BlockStatement" || !isComponent(node, context)) {
+      if (!isComponent(node, context)) {
         return;
       }
 
       const props = node.params[0];
-      if (node.params.length !== 1 || props?.type !== "Identifier") {
+      if (node.params.length > 1 || (props != null && props.type !== "Identifier")) {
         return;
       }
 
-      const propsVariable = ASTUtils.findVariable(sourceCode.getScope(props), props);
-      if (propsVariable == null) {
-        return;
+      const propsVariables = new Set<TSESLint.Scope.Variable>();
+      if (props?.type === "Identifier") {
+        const propsVariable = ASTUtils.findVariable(sourceCode.getScope(props), props);
+        if (propsVariable == null) {
+          return;
+        }
+        propsVariables.add(propsVariable);
       }
 
-      const propsVariables = new Set<TSESLint.Scope.Variable>([propsVariable]);
+      const environment = { propsVariables, typescript };
 
-      for (const statement of node.body.body) {
+      for (const statement of node.body.type === "BlockStatement" ? node.body.body : []) {
         if (statement.type === "VariableDeclaration") {
           for (const declaration of statement.declarations) {
             const aliasId = declaration.id;
-            if (aliasId.type !== "Identifier" || declaration.init == null) {
+            if (declaration.init == null) {
+              continue;
+            }
+            if (aliasId.type !== "Identifier") {
+              const read = findReactiveRead(declaration, environment, context);
+              if (read) {
+                context.report({ node: read.node, messageId: "staleReactiveRead" });
+              }
               continue;
             }
 
@@ -238,6 +256,10 @@ export default createRule<Options, MessageIds>({
                 if (declared != null && !hasWriteAfterInit(declared)) {
                   propsVariables.add(declared);
                 }
+              }
+              const read = findReactiveRead(declaration.init, environment, context);
+              if (read) {
+                context.report({ node: read.node, messageId: "staleReactiveRead" });
               }
               continue;
             }
@@ -262,11 +284,19 @@ export default createRule<Options, MessageIds>({
 
         const expression = getAssignmentExpression(statement);
         if (expression == null || expression.left.type !== "Identifier") {
+          const read = findReactiveRead(statement, environment, context);
+          if (read) {
+            context.report({ node: read.node, messageId: "staleReactiveRead" });
+          }
           continue;
         }
         const assigned = expression.left;
 
         if (!expressionContainsPropsRead(expression.right, propsVariables, sourceCode, context)) {
+          const read = findReactiveRead(expression.right, environment, context);
+          if (read) {
+            context.report({ node: read.node, messageId: "staleReactiveRead" });
+          }
           continue;
         }
 
@@ -275,6 +305,27 @@ export default createRule<Options, MessageIds>({
           messageId: "stalePropsAlias",
           data: { name: assigned.name },
         });
+      }
+
+      for (const child of getControlFlowFunctionChildren(node, context)) {
+        const accessorVariables = new Set<TSESLint.Scope.Variable>();
+        for (const parameter of child.accessorParameters) {
+          const variable = ASTUtils.findVariable(sourceCode.getScope(parameter), parameter);
+          if (variable) {
+            accessorVariables.add(variable);
+          }
+        }
+        const read = findReactiveRead(
+          child.function.body,
+          { propsVariables, accessorVariables, typescript },
+          context,
+        );
+        if (read) {
+          context.report({
+            node: read.node,
+            messageId: read.kind === "props" ? "stalePropsRead" : "staleReactiveRead",
+          });
+        }
       }
     };
 

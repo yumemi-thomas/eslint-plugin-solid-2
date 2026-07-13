@@ -1,11 +1,17 @@
-import * as ts from "typescript";
-import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { TSESTree as T } from "@typescript-eslint/utils";
+import { getReactiveBindingFact } from "../analysis/solid-bindings.js";
+import {
+  ASYNC_TRACKED_COMPUTE_ROLES,
+  getComputationCallbackRole,
+} from "../analysis/computation-roles.js";
+import {
+  isSolidAccessorExpression,
+  isTypeAwareSolidCallee,
+} from "../analysis/typescript-semantics.js";
 import { createRule } from "./create-rule.js";
 import {
-  bindsToSolid,
   getNearestFunctionAncestor,
   getTypeAwareServices,
-  isSolidApiCallbackArgument,
   type TypeAwareServices,
 } from "./solid-rule-utils.js";
 import { type FunctionNode } from "../utils.js";
@@ -26,19 +32,9 @@ const COMPUTE_FACTORIES = new Set([
   "createEffect",
   "createRenderEffect",
   "createProjection",
+  "createSignal",
+  "createStore",
 ]);
-
-// Factories whose single result is a signal/memo accessor, called as `value()`.
-const ACCESSOR_FACTORIES = new Set(["createMemo"]);
-// Factories returning a `[getter, setter]` pair; only the getter (element 0) is an accessor.
-const PAIR_ACCESSOR_FACTORIES = new Set(["createSignal", "createOptimistic"]);
-
-// Solid's reactive-getter type aliases. A call whose callee's *type* is one of these (and originates
-// from solid) is a tracked read — the type-aware path's nominal signal, used in place of the
-// AST path's "result of a known factory call" so member/param/imported accessors are seen too.
-// `Accessor<T>` is the public/annotation form (`() => T`); `SourceAccessor<T>` (`Refreshable<
-// Accessor<T>>`) is the inferred type of signal/memo getters in Solid 2.0, so both must be matched.
-const SOLID_ACCESSOR_TYPE_NAMES = new Set(["Accessor", "SourceAccessor"]);
 
 type Options = [{ typescriptEnabled?: boolean }?];
 type MessageIds = "reactiveReadAfterAwait";
@@ -110,49 +106,6 @@ function statementGuaranteesAwait(stmt: T.Statement): boolean {
   }
 }
 
-// Flatten a type into the constituents worth inspecting: the type itself plus, recursively, the
-// members of any union/intersection. This lets a decorated ecosystem accessor — e.g. a router's
-// `AccessorWithLatest<T> = Accessor<T> & { latest: T }` — be recognized by the solid `Accessor`
-// member of its intersection, even though the outer alias name is the library's own.
-function collectTypeParts(
-  type: ts.Type,
-  acc: ts.Type[] = [],
-  seen = new Set<ts.Type>(),
-): ts.Type[] {
-  if (seen.has(type)) {
-    return acc;
-  }
-  seen.add(type);
-  acc.push(type);
-  if (type.isUnion() || type.isIntersection()) {
-    for (const member of type.types) {
-      collectTypeParts(member, acc, seen);
-    }
-  }
-  return acc;
-}
-
-// Whether a TS symbol is declared by solid. Mirrors the AST side's "binding must resolve to solid"
-// rule (ADR-0003), so a same-named non-solid `Accessor`/factory is never treated as reactive.
-function symbolIsFromSolid(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
-  // Solid's reactive types/primitives live in `@solidjs/signals`, re-exported through `solid-js`
-  // (and `solid-signals` in the monorepo). Match any of those origins, by fully-qualified name or by
-  // declaration file. The FQN carries the module for module-exported symbols; the declaration-file
-  // fallback covers cases where the symbol has no `declarations` exposed (e.g. some `projectService`
-  // setups) or the FQN is unqualified.
-  const isSolidOrigin = (text: string): boolean =>
-    text.includes("solid-js") || text.includes("@solidjs") || text.includes("solid-signals");
-  if (isSolidOrigin(checker.getFullyQualifiedName(symbol))) {
-    return true;
-  }
-  for (const declaration of symbol.getDeclarations() ?? []) {
-    if (isSolidOrigin(declaration.getSourceFile().fileName)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export default createRule<Options, MessageIds>({
   name: "no-reactive-read-after-await",
   meta: {
@@ -185,12 +138,7 @@ export default createRule<Options, MessageIds>({
     const services: TypeAwareServices | null = typescriptEnabled
       ? getTypeAwareServices(context)
       : null;
-    const checker = services?.program.getTypeChecker() ?? null;
 
-    // Variables that hold a signal/memo accessor, resolved by binding (so `const c = count` aliases
-    // are tracked too). Populated as declarations are visited; declarations precede uses in source,
-    // so the set is complete by the time an accessor call inside a callback body is checked.
-    const accessorVars = new Set<TSESLint.Scope.Variable>();
     // Memoizes the compute-callback verdict per function — multiple reads in one callback (and the
     // type-aware factory lookup) then cost nothing after the first.
     const computeCallbackCache = new Map<FunctionNode, boolean>();
@@ -228,26 +176,14 @@ export default createRule<Options, MessageIds>({
     // can't match — a member/namespace call (`solid.createAsync(...)`) or an indirection trace can't
     // follow. Resolves the callee's symbol and checks it is a solid factory export.
     function isTypeAwareComputeCallback(fn: FunctionNode): boolean {
-      if (!services || !checker) {
+      if (!services) {
         return false;
       }
       const parent = fn.parent;
       if (parent?.type !== "CallExpression" || parent.arguments[0] !== fn) {
         return false;
       }
-      const calleeNode = services.esTreeNodeToTSNodeMap.get(parent.callee);
-      if (!calleeNode) {
-        return false;
-      }
-      let symbol = checker.getSymbolAtLocation(calleeNode);
-      if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
-        symbol = checker.getAliasedSymbol(symbol);
-      }
-      return (
-        symbol != null &&
-        COMPUTE_FACTORIES.has(symbol.getName()) &&
-        symbolIsFromSolid(symbol, checker)
-      );
+      return isTypeAwareSolidCallee(parent.callee, services, COMPUTE_FACTORIES);
     }
 
     function isComputeCallback(fn: FunctionNode): boolean {
@@ -256,8 +192,10 @@ export default createRule<Options, MessageIds>({
         return cached;
       }
       const result =
-        isSolidApiCallbackArgument(fn, 0, context, COMPUTE_FACTORIES) ||
-        isTypeAwareComputeCallback(fn);
+        (() => {
+          const role = getComputationCallbackRole(fn, context);
+          return role != null && ASYNC_TRACKED_COMPUTE_ROLES.has(role);
+        })() || isTypeAwareComputeCallback(fn);
       computeCallbackCache.set(fn, result);
       return result;
     }
@@ -266,22 +204,10 @@ export default createRule<Options, MessageIds>({
     // and, for `Accessor<T> | undefined`-style unions, its members; the alias must originate from
     // solid, so a plain `() => T` (structurally identical but not the solid alias) is left alone.
     function isSolidAccessorCallee(callee: T.Expression): boolean {
-      if (!services || !checker) {
+      if (!services) {
         return false;
       }
-      const calleeNode = services.esTreeNodeToTSNodeMap.get(callee);
-      if (!calleeNode) {
-        return false;
-      }
-      const type = checker.getTypeAtLocation(calleeNode);
-      return collectTypeParts(type).some((part) => {
-        const alias = part.aliasSymbol;
-        return (
-          alias != null &&
-          SOLID_ACCESSOR_TYPE_NAMES.has(alias.getName()) &&
-          symbolIsFromSolid(alias, checker)
-        );
-      });
+      return isSolidAccessorExpression(callee, services);
     }
 
     // The accessor's display name, or null when `call` is not a read of a reactive accessor. AST
@@ -289,8 +215,7 @@ export default createRule<Options, MessageIds>({
     // with type info, an identifier or member whose type is a solid `Accessor`.
     function accessorReadName(call: T.CallExpression): string | null {
       if (call.callee.type === "Identifier") {
-        const variable = ASTUtils.findVariable(sourceCode.getScope(call), call.callee);
-        if (variable && accessorVars.has(variable)) {
+        if (getReactiveBindingFact(call.callee, context)?.role === "accessor") {
           return call.callee.name;
         }
       }
@@ -301,52 +226,6 @@ export default createRule<Options, MessageIds>({
     }
 
     return {
-      VariableDeclarator(node) {
-        // const value = createMemo(...) / createAsync(...) / createProjection(...)
-        if (
-          node.id.type === "Identifier" &&
-          node.init?.type === "CallExpression" &&
-          node.init.callee.type === "Identifier" &&
-          bindsToSolid(node.init.callee, context, ACCESSOR_FACTORIES)
-        ) {
-          const variable = ASTUtils.findVariable(sourceCode.getScope(node.id), node.id);
-          if (variable) {
-            accessorVars.add(variable);
-          }
-          return;
-        }
-
-        // const [value] = createSignal(...) / createOptimistic(...)
-        if (
-          node.id.type === "ArrayPattern" &&
-          node.init?.type === "CallExpression" &&
-          node.init.callee.type === "Identifier" &&
-          bindsToSolid(node.init.callee, context, PAIR_ACCESSOR_FACTORIES)
-        ) {
-          const first = node.id.elements[0];
-          if (first?.type === "Identifier") {
-            const variable = sourceCode.scopeManager
-              ?.getDeclaredVariables(node)
-              .find((declared) => declared.name === first.name);
-            if (variable) {
-              accessorVars.add(variable);
-            }
-          }
-          return;
-        }
-
-        // const c = count  (alias of a known accessor)
-        if (node.id.type === "Identifier" && node.init?.type === "Identifier") {
-          const source = ASTUtils.findVariable(sourceCode.getScope(node.init), node.init);
-          if (source && accessorVars.has(source)) {
-            const target = ASTUtils.findVariable(sourceCode.getScope(node.id), node.id);
-            if (target) {
-              accessorVars.add(target);
-            }
-          }
-        }
-      },
-
       CallExpression(node) {
         // The read must sit directly in an async compute callback — not a nested closure (whose
         // invocation timing we can't know) and not the *apply* callback of an effect (arg 1, already

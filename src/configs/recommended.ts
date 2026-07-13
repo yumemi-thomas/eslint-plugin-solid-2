@@ -1,21 +1,7 @@
 import { plugin } from "../plugin.js";
+import { recommendedRules } from "../rule-catalog.js";
 
-type SolidRuleLevel = "off" | "warn" | "error";
-export type SolidRuleConfig = SolidRuleLevel | [SolidRuleLevel, ...unknown[]];
-export type SolidRuleMap = Record<string, SolidRuleConfig>;
-
-const recommendedRules: SolidRuleMap = {
-  "solid/components-return-once": "warn",
-  "solid/jsx-no-duplicate-props": "error",
-  "solid/no-destructure": "warn",
-  "solid/no-leaf-owner-operations": "error",
-  "solid/no-owned-scope-writes": "error",
-  "solid/no-reactive-read-after-await": "warn",
-  "solid/no-stale-props-alias": "warn",
-  "solid/no-untracked-read-in-effect-apply": "warn",
-  "solid/prefer-show": "warn",
-  "solid/self-closing-comp": "warn",
-};
+export type { SolidRuleConfig, SolidRuleMap } from "../rule-catalog.js";
 
 const recommended = {
   name: "solid/recommended",

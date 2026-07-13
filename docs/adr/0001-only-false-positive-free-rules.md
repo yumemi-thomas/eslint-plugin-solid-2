@@ -40,7 +40,7 @@ props are valid code that static analysis cannot prove safe or unsafe.
 
 ## Consequences
 
-- Deleted (fundamental FP): `no-untracked-reactive-read`,
+- Deleted (fundamental FP): the original heuristic `no-untracked-reactive-read`,
   `no-async-outside-loading-boundary`, `no-innerhtml`, `jsx-no-script-url`.
 - Deleted (tsc-subsumed): `jsx-no-undef`, `jsx-uses-vars`, `no-react-deps`,
   `no-invalid-cleanup-return`, `no-array-handlers` (the `[handler, data]` tuple
@@ -54,3 +54,7 @@ props are valid code that static analysis cannot prove safe or unsafe.
   removed/unknown/style/component-namespaced attribute the rule flags. The DOM
   RFC (dom.md) also removed the `on:` namespace, which the rule still lists as
   allowed — so it is stale as well as redundant.
+- A narrower strict-read analysis now lives behind `no-stale-props-alias`: it reports only reads
+  proven from bindings or nominal Solid accessor types, and recognizes JSX, nested closures,
+  reactive callbacks, and `untrack` as safe execution contexts. It does not restore the deleted
+  heuristic's guesses about arbitrary helper calls.

@@ -1,9 +1,15 @@
 # `solid/no-stale-props-alias`
 
-Disallow top-level aliases of component props.
+Disallow provable untracked reactive reads in component bodies and Solid control-flow function
+children. This includes stale props aliases, direct props reads, local signal/memo accessor calls,
+store reads, and accessor parameters supplied by control flow.
 
 Solid 2 tracks prop reads when the property is read in JSX or another tracked scope. A top-level
 alias reads once during component setup, outside tracking, so the alias can become stale.
+
+The same execution rule applies to direct reads such as `console.log(props.name)` and to the
+structure-building bodies of `For`, `Show`, and `Match` function children. JSX expressions,
+reactive computations, nested event/helper closures, and explicit `untrack` calls are excluded.
 
 ## Invalid
 
@@ -12,6 +18,23 @@ const Card: Component = (props) => {
   const name = props.name;
   return <h1>{name}</h1>;
 };
+```
+
+```tsx
+const Counter: Component = () => {
+  const [count] = createSignal(0);
+  console.log(count()); // direct component-body accessor read
+  return <span>{count()}</span>;
+};
+```
+
+```tsx
+<Show when={user()}>
+  {(user) => {
+    const name = user().name; // function-child accessor read outside JSX tracking
+    return <span>{name}</span>;
+  }}
+</Show>
 ```
 
 ```tsx
@@ -100,17 +123,35 @@ const Card: Component = (props) => {
 };
 ```
 
+## Options
+
+### `typescriptEnabled` (default `false`)
+
+Component bodies are recognised by annotation (`Component`/…) or in-file `<C/>` usage by default.
+Set `typescriptEnabled: true` to also detect components by their cross-file JSX usage via the
+TypeScript type-checker, recognize nominal Solid accessors, and follow re-exported Solid
+control-flow components (slower; requires ESLint type information).
+
+```json
+{ "rules": { "solid/no-stale-props-alias": ["warn", { "typescriptEnabled": true }] } }
+```
+
 ## Notes
 
-- A report requires an _eager read_: a member access rooted at the props object (`props.name`,
-  `props[key]`, reads through a stable alias) or a spread of it (`{ ...props }`). A bare `props`
-  reference is never a read — passing the object to `merge`/`omit` or another helper keeps
-  reactivity intact. A helper that reads eagerly inside (`createForm(props)`) is a tolerated false
-  negative: undecidable from the AST, and flagging it would break correct code.
-- Calls such as `console.log(props.name)` outside a variable initializer, reads in nested
-  functions, and explicit `untrack(...)` calls are not reported.
+- A props report requires an _eager read_: a member access rooted at the props object
+  (`props.name`, `props[key]`, reads through a stable alias) or a spread of it (`{ ...props }`). A
+  bare `props` reference is never a read — passing the object to `merge`/`omit` or another helper
+  keeps reactivity intact. A helper that reads eagerly inside (`createForm(props)`) is a tolerated
+  false negative because its behavior is undecidable from the call site.
+- Direct reads in nested functions and explicit `untrack(...)` calls are not reported.
 - Reassignable props aliases are not followed.
 - Destructured props are handled by `solid/no-destructure`.
-- Known gap (future work): untracked reads in control-flow render-callback bodies
-  (`<Show>{(v) => { const x = props.a; … }}</Show>`) have the same staleness problem as component
-  bodies but are not yet covered by this rule.
+- Function children of binding-proven Solid `For`, `Repeat`, `Show`, and `Match` elements are also
+  checked, including `children={fn}`, immutable function aliases, namespace imports, and nested
+  Solid control flow. JSX reads and explicit `untrack(...)` reads inside those callbacks remain
+  valid because they execute in tracked contexts.
+- Callback parameters follow Solid 2's mode-specific semantics: default `For` indexes,
+  `keyed={false}` items, custom-key `For` items/indexes, and non-keyed `Show`/`Match` values are
+  accessors. Default `For` items, `Repeat` indexes, and keyed `Show`/`Match` values are raw.
+- Type-aware mode additionally recognizes canonically typed Solid control-flow components that
+  arrive through re-export chains.

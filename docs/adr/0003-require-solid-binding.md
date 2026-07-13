@@ -9,11 +9,12 @@ library's `flush`, a state library's `createStore`, or a locally-defined `onClea
 a genuine Solid scope. `flush`/`createStore`/`onCleanup` are common names, so this was real. (Verified
 by running the rules.) `resolveSolidCallee` had the same latent bug via an early bare-name fallback.
 
-**Decision.** Resolve the identifier's binding before treating it as a Solid API (`bindsToSolid` /
-`isSolidApiCallbackArgument` in `solid-rule-utils.ts`). A name counts as the Solid API only when it
+**Decision.** Resolve the callee's binding before treating it as a Solid API (the shared resolver
+and binding-fact index live in `analysis/solid-bindings.ts`). A name counts as the Solid API only when it
 is a `solid-js` import (direct or aliased) **or** an unresolved global (auto-import). A name that
 binds to a local declaration or an import from another package is **not** the Solid API.
-`resolveSolidCallee` was tightened the same way (its `trace` step already handled `const` aliases).
+`resolveSolidCallee` was tightened the same way and also handles namespace members and immutable
+`const` alias chains.
 
 ## Consequences
 
@@ -22,16 +23,19 @@ binds to a local declaration or an import from another package is **not** the So
 - Genuinely-correct unresolved usage (`createTrackedEffect(() => flush())` with no import, relying on
   auto-import/globals) still fires — we assume an unresolved canonical name is the Solid one.
 - This relies only on scope analysis (no type-checker), so it still runs under oxlint.
+- Rules with a `typescriptEnabled` path additionally use canonical TypeScript symbols to follow
+  Solid APIs through re-export chains; this remains additive to direct binding resolution.
 - Residual false negatives remain by design (a call indirected through a renamed local variable, or
   reached via a nested helper) — tolerated per [ADR-0001](./0001-only-false-positive-free-rules.md).
-- **Resolution is self-contained (no caller-built alias index).** `resolveSolidCallee`'s `trace`
-  step already resolves aliased and `const`-aliased `solid-js` imports, so the per-rule alias `Set`s
+- **Resolution is self-contained (no caller-built alias index).** The shared source-level analysis
+  resolves direct, namespace, and `const`-aliased `solid-js` imports, so the per-rule alias `Set`s
   and `ImportDeclaration` handlers that earlier fed a `(aliases, canonicalNames)` pair were redundant
   and were removed; `bindsToSolid`/`resolveSolidCallee`/`isSolidApiCallbackArgument` now take only
   `(identifier, context, canonicalNames)`. `resolveSolidCallee` returns the **canonical** name even
   for an aliased import. The dead `collectSolidAliases` / `matchesSolidName` / `isCallbackArgumentOf`
   helpers were deleted. Do not reintroduce a caller-side alias index "for speed" — `trace` is the
-  single resolution path.
+  single resolution path. Reactive accessor/action/setter/store facts are indexed once per source
+  and reused by all consumers.
 - **The bare-canonical-name fallback fires only for a _truly unresolved_ global.** `trace` returns
   the identifier unchanged both for an auto-import global _and_ for a local the tracer can't follow
   (a `let`, a parameter, a destructured `const { onCleanup } = lib`). `resolveSolidCallee` therefore

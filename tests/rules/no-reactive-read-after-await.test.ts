@@ -436,6 +436,32 @@ ruleTester.run("no-reactive-read-after-await", rule as never, {
       createMemo(async () => (await fetch("/x"), count()));`,
       errors: [{ messageId: "reactiveReadAfterAwait" }],
     },
+    // Solid 2 function-form primitives and projections are tracked computations too.
+    {
+      code: `const [count, setCount] = createSignal(0);
+      createSignal(async () => {
+        await fetch("/x");
+        return count();
+      });`,
+      errors: [{ messageId: "reactiveReadAfterAwait", data: { name: "count" } }],
+    },
+    {
+      code: `const [count, setCount] = createSignal(0);
+      createStore(async () => {
+        await fetch("/x");
+        return { count: count() };
+      }, { count: 0 });`,
+      errors: [{ messageId: "reactiveReadAfterAwait", data: { name: "count" } }],
+    },
+    {
+      code: `import * as solid from "solid-js";
+      const [count] = solid.createSignal(0);
+      solid.createProjection(async () => {
+        await fetch("/x");
+        return { count: count() };
+      }, { count: 0 });`,
+      errors: [{ messageId: "reactiveReadAfterAwait", data: { name: "count" } }],
+    },
   ],
 });
 

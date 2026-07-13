@@ -53,6 +53,16 @@ ruleTester.run("no-leaf-owner-operations", rule as never, {
       errors: [{ messageId: "noFlush" }],
     },
     {
+      code: `import * as solid from "solid-js";
+      solid.createTrackedEffect(() => { solid.flush(); });`,
+      errors: [{ messageId: "noFlush" }],
+    },
+    {
+      code: `import * as solid from "solid-js";
+      solid.createTrackedEffect(() => { solid.onCleanup(() => {}); });`,
+      errors: [{ messageId: "noCleanup" }],
+    },
+    {
       code: `createTrackedEffect(() => { createMemo(() => count()); });`,
       errors: [{ messageId: "noPrimitives" }],
     },

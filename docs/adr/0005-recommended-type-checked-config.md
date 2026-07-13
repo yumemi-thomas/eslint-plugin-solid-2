@@ -19,7 +19,9 @@ no corrective variance between the two configs.
 
 - oxlint users and the speed-conscious stay on `recommended`; the majority who
   run `tsc` + typescript-eslint flip to `recommendedTypeChecked` and get
-  cross-file component detection and sound `prefer-for` coverage without hunting
-  per-rule flags.
+  cross-file component detection, nominal accessor detection, re-exported Solid API/control-flow
+  recognition, and sound `prefer-for` coverage without hunting per-rule flags.
 - `prefer-for` is enabled only in `recommendedTypeChecked`: syntax alone cannot
   distinguish Array#map from an unrelated collection method without false positives.
+- The type-aware paths of `no-leaf-owner-operations`, `no-stale-props-alias`, and
+  `no-untracked-read-in-effect-apply` are enabled by the config as additive coverage.

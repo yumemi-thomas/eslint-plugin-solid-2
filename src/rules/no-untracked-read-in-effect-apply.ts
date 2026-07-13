@@ -1,7 +1,12 @@
-import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { ASTUtils, TSESTree as T } from "@typescript-eslint/utils";
+import { getReactiveBindingFact, type ReactiveBindingFact } from "../analysis/solid-bindings.js";
+import {
+  getTypeAwareServices,
+  isSolidAccessorExpression,
+  isTypeAwareSolidCallee,
+} from "../analysis/typescript-semantics.js";
 import { createRule } from "./create-rule.js";
 import {
-  bindsToSolid,
   getNearestFunctionAncestor,
   getPropertyName,
   getReturnedExpressions,
@@ -14,14 +19,12 @@ import { isFunctionNode, trace, type FunctionNode } from "../utils.js";
 //   1. Calling a signal/memo accessor directly in the apply callback.
 //   2. Passing a store proxy through the compute return and reading its properties in apply.
 const EFFECT_NAMES = new Set(["createEffect", "createRenderEffect"]);
-const ACCESSOR_FACTORIES = new Set(["createMemo", "createProjection"]);
-const PAIR_ACCESSOR_FACTORIES = new Set(["createOptimistic", "createSignal"]);
-const STORE_FACTORIES = new Set(["createOptimisticStore", "createStore"]);
 const SAFE_HELPERS = new Set(["deep", "snapshot"]);
 
+type Options = [{ typescriptEnabled?: boolean }?];
 type MessageIds = "signalRead" | "storeProxyRead";
 
-export default createRule<[], MessageIds>({
+export default createRule<Options, MessageIds>({
   name: "no-untracked-read-in-effect-apply",
   meta: {
     type: "problem",
@@ -29,7 +32,15 @@ export default createRule<[], MessageIds>({
       description:
         "Disallow reading reactive state (signal accessors or store proxies) in a createEffect apply callback, which runs untracked.",
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          typescriptEnabled: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       signalRead:
         "Signal '{{name}}' is called directly in an effect apply callback. The apply phase runs untracked — read it in the compute phase and use the passed value, or wrap it in `untrack()`.",
@@ -37,21 +48,18 @@ export default createRule<[], MessageIds>({
         "Effect apply callbacks run untracked in Solid 2. Extract store properties in the compute phase or use `deep()` before reading them here.",
     },
   },
-  defaultOptions: [],
+  defaultOptions: [{}],
   create(context) {
     const sourceCode = context.sourceCode;
+    const services = context.options[0]?.typescriptEnabled ? getTypeAwareServices(context) : null;
+
+    const isEffectFactory = (node: T.Expression): boolean =>
+      resolveSolidCallee(node, context, EFFECT_NAMES) != null ||
+      (services != null && isTypeAwareSolidCallee(node, services, EFFECT_NAMES));
 
     // --- signal-accessor detection state -----------------------------------------------------
-    const reactiveVars = new Map<TSESLint.Scope.Variable, "accessor">();
     const applyCallbacks = new Set<FunctionNode>();
     const pendingAccessorCalls: T.CallExpression[] = [];
-
-    // --- store-proxy detection state ---------------------------------------------------------
-    const storeVars = new Set<TSESLint.Scope.Variable>();
-    // The store's literal initializer shape, when statically known, so a returned access that lands
-    // on a primitive leaf (`store.user.name`) is not mistaken for a proxy passthrough. `null` means
-    // the shape is unknown (non-literal initializer) — then we stay conservative and assume a proxy.
-    const storeShapes = new Map<TSESLint.Scope.Variable, T.ObjectExpression | null>();
 
     // Walk a member chain to its root identifier and the ordered property path (`store.user.name`
     // → { root: store, path: ["user", "name"] }). Returns null for a computed/dynamic access.
@@ -97,6 +105,21 @@ export default createRule<[], MessageIds>({
         current = next;
       }
       return current.type === "ObjectExpression" || current.type === "ArrayExpression";
+    };
+
+    const getStoreShape = (fact: ReactiveBindingFact): T.ObjectExpression | null => {
+      const init = fact.declaration.init;
+      if (init?.type !== "CallExpression") {
+        return null;
+      }
+      const first = init.arguments[0];
+      const seed =
+        first != null &&
+        first.type !== "SpreadElement" &&
+        (first.type === "FunctionExpression" || first.type === "ArrowFunctionExpression")
+          ? init.arguments[1]
+          : first;
+      return seed?.type === "ObjectExpression" ? seed : null;
     };
 
     // ===== signal-accessor helpers ===========================================================
@@ -191,8 +214,7 @@ export default createRule<[], MessageIds>({
         return false;
       }
       if (node.type === "Identifier") {
-        const variable = ASTUtils.findVariable(sourceCode.getScope(node), node);
-        return variable != null && storeVars.has(variable);
+        return getReactiveBindingFact(node, context)?.role === "store";
       }
       if (node.type === "MemberExpression") {
         const resolved = getMemberPath(node);
@@ -202,22 +224,19 @@ export default createRule<[], MessageIds>({
           return false;
         }
 
-        const variable = ASTUtils.findVariable(sourceCode.getScope(resolved.root), resolved.root);
-        if (variable == null || !storeVars.has(variable)) {
+        const fact = getReactiveBindingFact(resolved.root, context);
+        if (fact?.role !== "store") {
           return false;
         }
         // Only a path proven to land on an object/array is a proxy passthrough. Unknown initializer
         // shapes may be primitive leaves and must not be guessed under the zero-FP contract.
-        return pathLandsOnProxy(storeShapes.get(variable) ?? null, resolved.path) === true;
+        return pathLandsOnProxy(getStoreShape(fact), resolved.path) === true;
       }
       return false;
     };
 
     const checkStoreProxyInApply = (node: T.CallExpression): void => {
-      if (
-        resolveSolidCallee(node.callee, context, EFFECT_NAMES) == null ||
-        node.arguments.length < 2
-      ) {
+      if (!isEffectFactory(node.callee) || node.arguments.length < 2) {
         return;
       }
       const compute = getFunctionValue(node.arguments[0]);
@@ -276,77 +295,10 @@ export default createRule<[], MessageIds>({
     };
 
     return {
-      VariableDeclarator(node) {
-        // signal-accessor tracking
-        if (
-          node.id.type === "Identifier" &&
-          node.init?.type === "CallExpression" &&
-          node.init.callee.type === "Identifier" &&
-          bindsToSolid(node.init.callee, context, ACCESSOR_FACTORIES)
-        ) {
-          const variable = ASTUtils.findVariable(sourceCode.getScope(node.id), node.id);
-          if (variable) {
-            reactiveVars.set(variable, "accessor");
-          }
-          return;
-        }
-        if (
-          node.id.type === "ArrayPattern" &&
-          node.init?.type === "CallExpression" &&
-          node.init.callee.type === "Identifier" &&
-          bindsToSolid(node.init.callee, context, PAIR_ACCESSOR_FACTORIES)
-        ) {
-          const first = node.id.elements[0];
-          if (first?.type === "Identifier") {
-            const variable = sourceCode.scopeManager
-              ?.getDeclaredVariables(node)
-              .find((declared) => declared.name === first.name);
-            if (variable) {
-              reactiveVars.set(variable, "accessor");
-            }
-          }
-          return;
-        }
-        if (node.id.type === "Identifier" && node.init?.type === "Identifier") {
-          const source = ASTUtils.findVariable(sourceCode.getScope(node.init), node.init);
-          if (source && reactiveVars.get(source) === "accessor") {
-            const target = ASTUtils.findVariable(sourceCode.getScope(node.id), node.id);
-            if (target) {
-              reactiveVars.set(target, "accessor");
-            }
-          }
-        }
-
-        // store-proxy tracking
-        if (
-          node.id.type === "ArrayPattern" &&
-          node.init?.type === "CallExpression" &&
-          resolveSolidCallee(node.init.callee, context, STORE_FACTORIES) != null
-        ) {
-          const first = node.id.elements[0];
-          if (first?.type === "Identifier") {
-            const variable = sourceCode.scopeManager
-              ?.getDeclaredVariables(node)
-              .find((declared) => declared.name === first.name);
-            if (variable) {
-              storeVars.add(variable);
-              const initialValue = node.init.arguments[0];
-              storeShapes.set(
-                variable,
-                initialValue?.type === "ObjectExpression" ? initialValue : null,
-              );
-            }
-          }
-        }
-      },
       CallExpression(node) {
         // Register apply callbacks before descending — CallExpression is visited before its
         // arguments, so signal calls inside an apply callback see a populated set.
-        if (
-          node.callee.type === "Identifier" &&
-          bindsToSolid(node.callee, context, EFFECT_NAMES) &&
-          node.arguments.length >= 2
-        ) {
+        if (isEffectFactory(node.callee) && node.arguments.length >= 2) {
           const apply = getInlineApplyCallback(node.arguments[1]);
           if (apply) {
             applyCallbacks.add(apply);
@@ -356,28 +308,22 @@ export default createRule<[], MessageIds>({
         // store-proxy-through-compute detection (runs on the effect call itself)
         checkStoreProxyInApply(node);
 
-        if (node.callee.type === "Identifier") {
-          pendingAccessorCalls.push(node);
-        }
+        pendingAccessorCalls.push(node);
       },
       "Program:exit"() {
         // Resolve after traversal so apply callbacks and accessors declared below their use have
         // both been indexed.
         for (const node of pendingAccessorCalls) {
           const callee = node.callee;
-          if (callee.type !== "Identifier") {
-            continue;
-          }
-          const variable = ASTUtils.findVariable(sourceCode.getScope(node), callee);
-          if (
-            variable &&
-            reactiveVars.get(variable) === "accessor" &&
-            findContainingApplyCallback(node) != null
-          ) {
+          const astAccessor =
+            callee.type === "Identifier" &&
+            getReactiveBindingFact(callee, context)?.role === "accessor";
+          const typedAccessor = services != null && isSolidAccessorExpression(callee, services);
+          if ((astAccessor || typedAccessor) && findContainingApplyCallback(node) != null) {
             context.report({
               node,
               messageId: "signalRead",
-              data: { name: callee.name },
+              data: { name: sourceCode.getText(callee) },
             });
           }
         }

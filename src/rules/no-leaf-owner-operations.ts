@@ -1,12 +1,11 @@
 import { TSESTree as T } from "@typescript-eslint/utils";
-import { isFunctionNode, trace } from "../utils.js";
-import { createRule } from "./create-rule.js";
 import {
-  bindsToSolid,
-  getNearestFunctionAncestor,
-  isComponent,
-  isSolidApiCallbackArgument,
-} from "./solid-rule-utils.js";
+  getTypeAwareServices,
+  resolveTypeAwareSolidCallee,
+} from "../analysis/typescript-semantics.js";
+import { isFunctionNode, trace, type FunctionNode } from "../utils.js";
+import { createRule } from "./create-rule.js";
+import { getNearestFunctionAncestor, isComponent, resolveSolidCallee } from "./solid-rule-utils.js";
 
 // Leaf owners: they cannot own or schedule, so `onCleanup`, reactive-primitive creation, and
 // `flush()` are all forbidden directly inside their callback. These are three facets of one
@@ -53,9 +52,10 @@ function hasProvablyFunctionFirstArgument(
   return isFunctionNode(first) || isFunctionNode(trace(first, context));
 }
 
+type Options = [{ typescriptEnabled?: boolean }?];
 type MessageIds = "noCleanup" | "noFlush" | "noPrimitives";
 
-export default createRule<[], MessageIds>({
+export default createRule<Options, MessageIds>({
   name: "no-leaf-owner-operations",
   meta: {
     type: "problem",
@@ -63,7 +63,15 @@ export default createRule<[], MessageIds>({
       description:
         "Disallow onCleanup, reactive-primitive creation, and flush() inside the leaf owners createTrackedEffect and onSettled.",
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          typescriptEnabled: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       noCleanup:
         "Cannot use `onCleanup` inside `createTrackedEffect` or `onSettled`; return a cleanup function instead.",
@@ -73,8 +81,24 @@ export default createRule<[], MessageIds>({
         "Cannot create reactive primitives inside `createTrackedEffect` or `onSettled`; move them to the component body or another owner.",
     },
   },
-  defaultOptions: [],
+  defaultOptions: [{}],
   create(context) {
+    const services = context.options[0]?.typescriptEnabled ? getTypeAwareServices(context) : null;
+    const isSolidApi = (node: T.Node, names: ReadonlySet<string>): boolean =>
+      resolveSolidCallee(node, context, names) != null ||
+      (services != null && resolveTypeAwareSolidCallee(node, services, names) != null);
+    const isSolidCallbackArgument = (
+      node: FunctionNode,
+      argumentIndex: number,
+      names: ReadonlySet<string>,
+    ): boolean => {
+      const call = node.parent;
+      return (
+        call?.type === "CallExpression" &&
+        call.arguments[argumentIndex] === node &&
+        isSolidApi(call.callee, names)
+      );
+    };
     const forbiddenStack: T.FunctionLike[] = [];
 
     const onFunctionEnter = (node: T.FunctionLike) => {
@@ -86,16 +110,16 @@ export default createRule<[], MessageIds>({
         return;
       }
 
-      const trackedEffect = isSolidApiCallbackArgument(node, 0, context, TRACKED_EFFECT_NAMES);
+      const trackedEffect = isSolidCallbackArgument(node, 0, TRACKED_EFFECT_NAMES);
       let ownerBackedSettled = false;
-      if (isSolidApiCallbackArgument(node, 0, context, ON_SETTLED_NAMES)) {
+      if (isSolidCallbackArgument(node, 0, ON_SETTLED_NAMES)) {
         const settledCall = node.parent as T.CallExpression;
         const enclosing = getNearestFunctionAncestor(settledCall);
         ownerBackedSettled =
           enclosing != null &&
           (isComponent(enclosing, context) ||
-            isSolidApiCallbackArgument(enclosing, 0, context, OWNER_CALLBACK_NAMES) ||
-            isSolidApiCallbackArgument(enclosing, 1, context, OWNER_CALLBACK_NAMES));
+            isSolidCallbackArgument(enclosing, 0, OWNER_CALLBACK_NAMES) ||
+            isSolidCallbackArgument(enclosing, 1, OWNER_CALLBACK_NAMES));
       }
 
       if (trackedEffect || ownerBackedSettled) {
@@ -118,23 +142,19 @@ export default createRule<[], MessageIds>({
       "ArrowFunctionExpression:exit": onFunctionExit,
       CallExpression(node) {
         const currentForbidden = forbiddenStack[forbiddenStack.length - 1];
-        if (
-          !currentForbidden ||
-          getNearestFunctionAncestor(node) !== currentForbidden ||
-          node.callee.type !== "Identifier"
-        ) {
+        if (!currentForbidden || getNearestFunctionAncestor(node) !== currentForbidden) {
           return;
         }
 
         const callee = node.callee;
-        if (bindsToSolid(callee, context, ON_CLEANUP_NAMES)) {
+        if (isSolidApi(callee, ON_CLEANUP_NAMES)) {
           context.report({ node: callee, messageId: "noCleanup" });
-        } else if (bindsToSolid(callee, context, FLUSH_NAMES)) {
+        } else if (isSolidApi(callee, FLUSH_NAMES)) {
           context.report({ node: callee, messageId: "noFlush" });
-        } else if (bindsToSolid(callee, context, PRIMITIVE_NAMES)) {
+        } else if (isSolidApi(callee, PRIMITIVE_NAMES)) {
           context.report({ node: callee, messageId: "noPrimitives" });
         } else if (
-          bindsToSolid(callee, context, FUNCTION_FORM_PRIMITIVE_NAMES) &&
+          isSolidApi(callee, FUNCTION_FORM_PRIMITIVE_NAMES) &&
           hasProvablyFunctionFirstArgument(node, context)
         ) {
           context.report({ node: callee, messageId: "noPrimitives" });

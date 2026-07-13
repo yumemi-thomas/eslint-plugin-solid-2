@@ -57,6 +57,13 @@ ruleTester.run("no-owned-scope-writes", rule as never, {
       setState({ type: "INC" });
       return <div>{state.count}</div>;
     };`,
+    // refresh is imperative and valid outside a tracked compute role.
+    `import { createMemo, refresh } from "solid-js";
+    const data = createMemo(() => fetchData());
+    const refetch = () => refresh(data);`,
+    `import { createEffect, createMemo, refresh } from "solid-js";
+    const data = createMemo(() => fetchData());
+    createEffect(() => trigger(), () => refresh(data));`,
     // RC-2: a local `createMemo` is not Solid's compute scope.
     `function createMemo(fn) { return fn(); }
     function createSignal(v) { return [() => v, (n) => {}]; }
@@ -148,6 +155,48 @@ ruleTester.run("no-owned-scope-writes", rule as never, {
         setCount(1);
         return Math.random() > 0.5 ? <div>{count()}</div> : <span>{count()}</span>;
       }`,
+      errors: [{ messageId: "noOwnedScopeWrite" }],
+    },
+    {
+      code: `import { createMemo, refresh } from "solid-js";
+      const data = createMemo(() => fetchData());
+      createMemo(() => refresh(data));`,
+      errors: [{ messageId: "noOwnedScopeRefresh" }],
+    },
+    {
+      code: `import * as solid from "solid-js";
+      const data = solid.createMemo(() => fetchData());
+      solid.createMemo(() => solid.refresh(data));`,
+      errors: [{ messageId: "noOwnedScopeRefresh" }],
+    },
+    {
+      code: `import * as solid from "solid-js";
+      const [, setValue] = solid.createSignal(0);
+      solid.createMemo(() => setValue(1));`,
+      errors: [{ messageId: "noOwnedScopeWrite" }],
+    },
+    {
+      code: `const [outside, setOutside] = createSignal(0);
+      createSignal(() => {
+        setOutside(1);
+        return outside();
+      });`,
+      errors: [{ messageId: "noOwnedScopeWrite" }],
+    },
+    {
+      code: `const [outside, setOutside] = createSignal(0);
+      createStore((draft) => {
+        setOutside(1);
+        draft.value = outside();
+      }, { value: 0 });`,
+      errors: [{ messageId: "noOwnedScopeWrite" }],
+    },
+    {
+      code: `const [outside, setOutside] = createSignal(0);
+      createProjection((draft) => {
+        setOutside(1);
+        draft.value = outside();
+      }, { value: 0 });`,
       errors: [{ messageId: "noOwnedScopeWrite" }],
     },
   ],

@@ -16,12 +16,6 @@ ruleTester.run("no-stale-props-alias", rule as never, {
     `const Card: Component = ({ name }) => {
       return <h1>{name}</h1>;
     };`,
-    // Broad top-level reads may be intentional setup/debug/invariant work; this rule only targets
-    // aliases that can accidentally be used as stale props.
-    `const Card: Component = (props) => {
-      console.log(props.name);
-      return <h1>{props.name}</h1>;
-    };`,
     // The canonical 2.0 defaults pattern: merge returns a reactive proxy, and passing the props
     // object to it is a passthrough, not a read.
     `import { merge } from "solid-js";
@@ -72,8 +66,103 @@ ruleTester.run("no-stale-props-alias", rule as never, {
       const name = alias.name;
       return <h1>{name}</h1>;
     };`,
+    // Reads inside returned JSX are tracked even when the JSX is built by control flow.
+    `import { Show } from "solid-js";
+    const Card: Component = (props) => (
+      <Show when={props.visible}>{() => <span>{props.name}</span>}</Show>
+    );`,
+    // Explicit untrack remains the intentional one-time-read escape hatch.
+    `import { For, untrack } from "solid-js";
+    const Card: Component = (props) => (
+      <For each={props.items}>{() => {
+        const label = untrack(() => props.label);
+        return <span>{label}</span>;
+      }}</For>
+    );`,
+    // A same-named custom control-flow component is not Solid's execution context.
+    `import { Show } from "./ui";
+    const Card: Component = (props) => (
+      <Show>{() => { const name = props.name; return <span>{name}</span>; }}</Show>
+    );`,
+    // Nested closures execute later and are outside the structure-building callback body.
+    `import { Repeat } from "solid-js";
+    const Card: Component = (props) => (
+      <Repeat count={1}>{() => {
+        const click = () => console.log(props.name);
+        return <button onClick={click}>Open</button>;
+      }}</Repeat>
+    );`,
+    // The default For item and Repeat index are stable raw values, not accessors.
+    `import { For, Repeat } from "solid-js";
+    const Card: Component = (props) => <>
+      <For each={props.items}>{(item) => { const name = item.name; return <span>{name}</span>; }}</For>
+      <Repeat count={2}>{(index) => { const value = index + 1; return <span>{value}</span>; }}</Repeat>
+    </>;`,
+    // Keyed Show passes the raw narrowed value.
+    `import { Show } from "solid-js";
+    const Card: Component = (props) => (
+      <Show when={props.user} keyed>{(user) => { const name = user.name; return <span>{name}</span>; }}</Show>
+    );`,
+    // Explicit untrack is also valid for callback accessors.
+    `import { Show, untrack } from "solid-js";
+    const Card: Component = (props) => (
+      <Show when={props.user}>{(user) => { const name = untrack(() => user().name); return <span>{name}</span>; }}</Show>
+    );`,
   ],
   invalid: [
+    {
+      code: `const Card: Component = (props) => {
+        const [value] = createSignal(props.initial);
+        return <span>{value()}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = (props) => {
+        const { name } = props;
+        return <span>{name}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = (props) => {
+        let name;
+        ({ name } = props);
+        return <span>{name}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = () => {
+        const [store] = createStore({ name: "Ada" });
+        const { name } = store;
+        return <span>{name}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = (props) => {
+        console.log(props.name);
+        return <h1>{props.name}</h1>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = () => {
+        const [count] = createSignal(0);
+        console.log(count());
+        return <span>{count()}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `const Card: Component = () => {
+        const [store] = createStore({ user: { name: "Ada" } });
+        validate(store.user.name);
+        return <span>{store.user.name}</span>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
     {
       code: `const Card: Component = (props) => {
         const name = props.name;
@@ -220,6 +309,101 @@ ruleTester.run("no-stale-props-alias", rule as never, {
         return <h1>{name}</h1>;
       };`,
       errors: [{ messageId: "stalePropsAlias", data: { name: "name" } }],
+    },
+    {
+      code: `import { Show } from "solid-js";
+      const Card: Component = (props) => (
+        <Show when={props.visible}>{() => {
+          const name = props.name;
+          return <span>{name}</span>;
+        }}</Show>
+      );`,
+      errors: [{ messageId: "stalePropsRead" }],
+    },
+    {
+      code: `import { For as Each } from "solid-js";
+      const Card: Component = (props) => (
+        <Each each={props.items}>{() => props.label}</Each>
+      );`,
+      errors: [{ messageId: "stalePropsRead" }],
+    },
+    {
+      code: `import * as Solid from "solid-js";
+      const Card: Component = (props) => (
+        <Solid.Repeat count={1} children={() => console.log(props.name)} />
+      );`,
+      errors: [{ messageId: "stalePropsRead" }],
+    },
+    {
+      code: `import { Match, Switch } from "solid-js";
+      const Card: Component = (props) => {
+        const render = () => props.name;
+        return <Switch><Match when={true}>{render}</Match></Switch>;
+      };`,
+      errors: [{ messageId: "stalePropsRead" }],
+    },
+    {
+      code: `import { Show } from "solid-js";
+      const Card: Component = (props) => (
+        <Show when={props.user}>{(user) => {
+          const name = user().name;
+          return <span>{name}</span>;
+        }}</Show>
+      );`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `import { For } from "solid-js";
+      const Card: Component = (props) => (
+        <For each={props.items}>{(item, index) => {
+          const position = index();
+          return <span>{position}: {item.name}</span>;
+        }}</For>
+      );`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `import { For } from "solid-js";
+      const Card: Component = (props) => {
+        const key = item => item.id;
+        return <For each={props.items} keyed={key}>{(item) => {
+          const name = item().name;
+          return <span>{name}</span>;
+        }}</For>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `import { For } from "solid-js";
+      const Card: Component = (props) => (
+        <For each={props.items} keyed={false}>{(item) => {
+          const name = item().name;
+          return <span>{name}</span>;
+        }}</For>
+      );`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `import { Show } from "solid-js";
+      const Card: Component = (props) => {
+        const [count] = createSignal(0);
+        return <Show when={props.visible}>{() => {
+          console.log(count());
+          return <span>{count()}</span>;
+        }}</Show>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
+    },
+    {
+      code: `import { Show } from "solid-js";
+      const Card: Component = (props) => {
+        const [store] = createStore({ name: "Ada" });
+        return <Show when={props.visible}>{() => {
+          const name = store.name;
+          return <span>{name}</span>;
+        }}</Show>;
+      };`,
+      errors: [{ messageId: "staleReactiveRead" }],
     },
   ],
 });

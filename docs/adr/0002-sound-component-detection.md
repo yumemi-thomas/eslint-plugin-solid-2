@@ -29,7 +29,8 @@ only buys extra coverage at a cost the user opts into.
 
 ## Consequences
 
-- Detection is exposed as a self-indexing `isComponent(node, context)`: it builds the in-file
+- Detection is exposed from `analysis/component-recognition.ts` as a self-indexing
+  `isComponent(node, context)`: it builds the in-file
   `<C/>` usage index once per source (memoized on `SourceCode`) and reads `typescriptEnabled` from
   `context` itself. Because that index is complete on first query, rules call it **inline during
   traversal** — no rule threads a `jsxComponentNames` set or defers detection to `Program:exit`.
@@ -50,8 +51,8 @@ only buys extra coverage at a cost the user opts into.
   to a `solid-js` import (or an unresolved/ambient global), never a same-named
   local `type`/`interface` or an import from another package. (The original
   implementation matched the bare type name, which false-positived on a
-  user-defined `Component` type — an FP audit caught it; `typeNameBindsToSolid`
-  in `solid-rule-utils.ts` now enforces the binding, mirroring ADR-0003.)
+  user-defined `Component` type — an FP audit caught it; the annotation proof in
+  `analysis/component-recognition.ts` now enforces the binding, mirroring ADR-0003.)
 - **Tolerated false negative:** a bare, unannotated component used only in another
   file is not detected by default. Close it by annotating it `Component<P>`,
   using it as `<C/>` in-file, or enabling `typescriptEnabled`. Each rule's tests
@@ -59,6 +60,7 @@ only buys extra coverage at a cost the user opts into.
 - Do **not** restore the capitalized-JSX heuristic — it reintroduces the false
   positive and the corrective variance this decision removes.
 - `typescript` remains a peer dependency, used only by the opt-in path.
-- `no-untracked-reactive-read` stays deleted: sound component detection is
-  necessary but not sufficient for it (it also FPs on intentional one-time reads
-  like `createSignal(props.x)`).
+- The original heuristic `no-untracked-reactive-read` stays deleted: sound component detection is
+  necessary but not sufficient. The narrower analyzer used by `no-stale-props-alias` additionally
+  proves the reactive binding and execution context; intentional one-time reads use explicit
+  `untrack`, matching the Solid 2 strict-read contract.

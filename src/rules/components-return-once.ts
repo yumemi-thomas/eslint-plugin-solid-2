@@ -1,7 +1,8 @@
 import { ASTUtils, TSESLint, TSESTree as T } from "@typescript-eslint/utils";
+import { getReactiveBindingFactForVariable } from "../analysis/solid-bindings.js";
 import { isFunctionNode, type FunctionNode } from "../utils.js";
 import { createRule } from "./create-rule.js";
-import { bindsToSolid, getSolidImportFixes, isComponent } from "./solid-rule-utils.js";
+import { getSolidImportFixes, isComponent } from "./solid-rule-utils.js";
 
 // A conditional/early return only breaks anything when its guard can *change* after the component's
 // single run — i.e. when the guard performs a reactive read. A static guard (`isServer`,
@@ -10,10 +11,6 @@ import { bindsToSolid, getSolidImportFixes, isComponent } from "./solid-rule-uti
 // reactive state: a member access rooted at the props parameter, a locally-declared signal/memo
 // accessor call, a store member read, or a `const` derived from one of those. Guards we can't prove
 // reactive (a helper call, a context read, an imported accessor) are tolerated false negatives.
-const ACCESSOR_FACTORIES = new Set(["createMemo"]);
-const PAIR_ACCESSOR_FACTORIES = new Set(["createSignal", "createOptimistic"]);
-const STORE_FACTORIES = new Set(["createOptimisticStore", "createStore"]);
-
 type RuleContext = Readonly<TSESLint.RuleContext<string, readonly unknown[]>>;
 
 function getVariable(id: T.Identifier, context: RuleContext): TSESLint.Scope.Variable | null {
@@ -24,61 +21,6 @@ function getVariable(id: T.Identifier, context: RuleContext): TSESLint.Scope.Var
 function getDeclarator(variable: TSESLint.Scope.Variable): T.VariableDeclarator | null {
   const def = variable.defs[0];
   return def?.type === "Variable" ? def.node : null;
-}
-
-/** Whether `variable` is `elements[0]` of an array-pattern declaration whose init calls a factory. */
-function isPairElementZero(
-  variable: TSESLint.Scope.Variable,
-  factories: ReadonlySet<string>,
-  context: RuleContext,
-): boolean {
-  const declarator = getDeclarator(variable);
-  if (
-    declarator?.id.type !== "ArrayPattern" ||
-    declarator.init?.type !== "CallExpression" ||
-    declarator.init.callee.type !== "Identifier"
-  ) {
-    return false;
-  }
-  const first = declarator.id.elements[0];
-  return (
-    first?.type === "Identifier" &&
-    first.name === variable.name &&
-    bindsToSolid(declarator.init.callee, context, factories)
-  );
-}
-
-/** Whether calling `variable` reads a signal/memo accessor (follows `const c = count` aliases). */
-function variableIsAccessor(
-  variable: TSESLint.Scope.Variable,
-  context: RuleContext,
-  seen: Set<TSESLint.Scope.Variable>,
-): boolean {
-  if (seen.has(variable)) {
-    return false;
-  }
-  seen.add(variable);
-
-  if (isPairElementZero(variable, PAIR_ACCESSOR_FACTORIES, context)) {
-    return true;
-  }
-
-  const declarator = getDeclarator(variable);
-  if (declarator?.id.type !== "Identifier" || declarator.init == null) {
-    return false;
-  }
-  if (
-    declarator.init.type === "CallExpression" &&
-    declarator.init.callee.type === "Identifier" &&
-    bindsToSolid(declarator.init.callee, context, ACCESSOR_FACTORIES)
-  ) {
-    return true;
-  }
-  if (declarator.init.type === "Identifier") {
-    const source = getVariable(declarator.init, context);
-    return source != null && variableIsAccessor(source, context, seen);
-  }
-  return false;
 }
 
 /**
@@ -107,7 +49,10 @@ function containsReactiveRead(
     if (variable == null) {
       return false;
     }
-    if (isPropsParameter(variable) || isPairElementZero(variable, STORE_FACTORIES, context)) {
+    if (
+      isPropsParameter(variable) ||
+      getReactiveBindingFactForVariable(variable, context)?.role === "store"
+    ) {
       return true;
     }
     return derivedConstIsReactive(variable);
@@ -140,7 +85,10 @@ function containsReactiveRead(
 
     if (current.type === "CallExpression" && current.callee.type === "Identifier") {
       const callee = getVariable(current.callee, context);
-      if (callee != null && variableIsAccessor(callee, context, new Set())) {
+      if (
+        callee != null &&
+        getReactiveBindingFactForVariable(callee, context)?.role === "accessor"
+      ) {
         return true;
       }
     }

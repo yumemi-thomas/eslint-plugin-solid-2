@@ -53,7 +53,13 @@ In the browser there is no reliable way to detect this at runtime: once an async
 
 ## Type-aware mode (additive)
 
-By default the rule is **AST-only**: it tracks accessors that come from a recognizable factory call in the same file (`createSignal`/`createMemo`/`createOptimistic`, plus `const` aliases). With type information enabled (the `recommendedTypeChecked` config, or `{ typescriptEnabled: true }`), it additionally recognizes accessors **by type** — a callee whose type is solid's `Accessor`, and factory calls resolved by symbol. This catches cases the AST path can't see:
+By default the rule is **AST-only**: it tracks accessors that come from a recognizable factory call
+in the same file (`createSignal`/`createMemo`/`createOptimistic`, plus `const` aliases). Async compute
+callbacks are recognized for effects, memos, projections, and derived signal/store factories,
+including direct, aliased, and namespace `solid-js` imports. With type information enabled (the
+`recommendedTypeChecked` config, or `{ typescriptEnabled: true }`), it additionally recognizes
+accessors **by type** — a callee whose type is Solid's `Accessor`, and factory calls resolved by
+symbol. This catches cases the AST path can't see:
 
 ```ts
 // member accessor — only caught with type info

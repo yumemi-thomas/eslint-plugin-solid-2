@@ -30,9 +30,9 @@ rule rather than rewritten; the merge unifies the rule ID, doc, and config entry
   duplication this removes.
 - **Correction (was inaccurate):** an earlier draft of this ADR claimed "the
   shared leaf-owner/scope-stack machinery lives in `solid-rule-utils.ts`." It
-  does not. What `solid-rule-utils.ts` shares is the _predicate_ layer —
-  `isSolidApiCallbackArgument` / `bindsToSolid` (which answer "is this the
-  callback of Solid API X?"). The **scope-tracking state itself is per-rule and
+  does not. Solid binding resolution is now shared by `analysis/solid-bindings.ts`, while
+  computation callback classification is shared by `analysis/computation-roles.ts`. The
+  **scope-tracking state itself is per-rule and
   intentionally different**: `no-leaf-owner-operations` keeps a `forbiddenStack`
   (it must know nesting for any descendant call), while
   `no-untracked-read-in-effect-apply` keeps an `applyCallbacks` set of

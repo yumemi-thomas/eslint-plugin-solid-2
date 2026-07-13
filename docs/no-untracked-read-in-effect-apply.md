@@ -65,6 +65,22 @@ createEffect(
 );
 ```
 
+## Options
+
+### `typescriptEnabled` (default `false`)
+
+The AST-only path recognises accessors created in the same file. Set `typescriptEnabled: true` to
+also detect imported, parameter, and member accessors whose nominal type originates from Solid.
+Structurally similar plain functions and readonly objects are not treated as accessors or stores.
+
+```json
+{
+  "rules": {
+    "solid/no-untracked-read-in-effect-apply": ["warn", { "typescriptEnabled": true }]
+  }
+}
+```
+
 ## Notes
 
 - Only reads that happen **directly** in the apply callback are reported — the read's nearest

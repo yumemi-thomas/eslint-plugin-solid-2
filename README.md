@@ -23,7 +23,9 @@ import solid from "@thomaflette/eslint-plugin-solid-2";
 export default [solid.configs.recommended];
 ```
 
-For a TypeScript project, prefer the type-checked config. It adds cross-file component detection and enables `prefer-for` only when the receiver is proven to be an array:
+For a TypeScript project, prefer the type-checked config. It adds cross-file component detection,
+nominal accessor and re-exported Solid API recognition, and enables `prefer-for` only when the
+receiver is proven to be an array:
 
 ```js
 // eslint.config.js
@@ -55,7 +57,7 @@ The `flat/recommended` and `flat/recommended-type-checked` names are aliases for
 | `no-leaf-owner-operations`          | Invalid cleanup, flush, and child-owner work inside leaf owners.                                         |
 | `no-owned-scope-writes`             | State writes and action calls from component or compute scopes.                                          |
 | `no-reactive-read-after-await`      | Accessor reads after an `await` in a reactive computation.                                               |
-| `no-stale-props-alias`              | Top-level aliases of reactive prop reads.                                                                |
+| `no-stale-props-alias`              | Provable untracked reactive reads in components and control-flow function children.                      |
 | `no-untracked-read-in-effect-apply` | Signal and store reads in an effect apply callback.                                                      |
 | `prefer-for`                        | Uses `<For>` for reactive array rendering when type information proves `Array#map`.                      |
 | `prefer-show`                       | Uses `<Show>` for idiomatic reactive JSX conditionals.                                                   |
@@ -80,6 +82,7 @@ vp install
 vp check
 vp test
 vp run build
+vp test bench
 ```
 
 ## License
