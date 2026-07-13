@@ -1,4 +1,4 @@
-# eslint-plugin-solid-2
+# @thomaflette/eslint-plugin-solid-2
 
 Sound ESLint rules for [Solid 2](https://github.com/solidjs/solid/tree/next) reactivity and idiomatic control flow.
 
@@ -9,7 +9,7 @@ Solid 2 changes how effects, ownership, async computations, and control-flow cal
 ## Install
 
 ```sh
-pnpm add -D eslint-plugin-solid-2 eslint typescript @typescript-eslint/parser
+pnpm add -D @thomaflette/eslint-plugin-solid-2 eslint typescript @typescript-eslint/parser
 ```
 
 ## Configure
@@ -18,7 +18,7 @@ Use the base config when your linter runs without TypeScript program information
 
 ```js
 // eslint.config.js
-import solid from "eslint-plugin-solid-2";
+import solid from "@thomaflette/eslint-plugin-solid-2";
 
 export default [solid.configs.recommended];
 ```
@@ -27,7 +27,7 @@ For a TypeScript project, prefer the type-checked config. It adds cross-file com
 
 ```js
 // eslint.config.js
-import solid from "eslint-plugin-solid-2";
+import solid from "@thomaflette/eslint-plugin-solid-2";
 import tsParser from "@typescript-eslint/parser";
 
 export default [

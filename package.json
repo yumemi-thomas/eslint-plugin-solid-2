@@ -1,5 +1,5 @@
 {
-  "name": "eslint-plugin-solid-2",
+  "name": "@thomaflette/eslint-plugin-solid-2",
   "version": "0.1.0",
   "description": "Sound ESLint rules for Solid 2 reactivity and idiomatic control flow.",
   "keywords": [

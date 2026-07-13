@@ -1,6 +1,6 @@
 # A Solid 2.0 correctness guard, not a migration tool; refined deletion criterion and fix tiers
 
-**Context.** It was tempting to give `eslint-plugin-solid-2` a second mandate:
+**Context.** It was tempting to give `@thomaflette/eslint-plugin-solid-2` a second mandate:
 help people port 1.x→2.0 with rules that flag renamed/moved/removed APIs
 (`solid-js/store → solid-js`, `createResource`, `Index`, `classList`, …). We
 considered a separate `migration` config of such codemod rules. On reflection we
